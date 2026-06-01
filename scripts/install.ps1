@@ -33,12 +33,6 @@ if (-not (Test-Path ".env")) {
     (Get-Content ".env") -replace '^CFST_WEB_PORT=.*', "CFST_WEB_PORT=$WebPort" | Set-Content ".env"
 }
 
-if (-not (Test-Path "config.yaml")) {
-    Copy-Item "config.example.yaml" "config.yaml"
-    Write-Host "==> Created config.yaml"
-    Write-Host "==> Edit config.yaml to set your domain and Cloudflare API token when ready."
-}
-
 New-Item -ItemType Directory -Force -Path "data" | Out-Null
 
 Write-Host "==> Starting service"
@@ -47,5 +41,4 @@ docker compose up -d --build
 Write-Host ""
 Write-Host "ATO-CFIP is running."
 Write-Host "Open: http://YOUR_NAS_IP:$WebPort"
-Write-Host "Config: $InstallDir\config.yaml"
-
+Write-Host "Config is stored in the Docker volume: ato-cfip-config:/config/config.yaml"

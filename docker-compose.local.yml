@@ -1,6 +1,6 @@
 services:
   ato-cfip:
-    image: ghcr.io/clover-eric/ato-cfip:latest
+    image: ato-cfip:local
     container_name: ato-cfip
     restart: unless-stopped
     ports:

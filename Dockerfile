@@ -16,4 +16,4 @@ COPY ip.txt /app/ip.txt
 COPY ipv6.txt /app/ipv6.txt
 VOLUME ["/app/data"]
 EXPOSE 8080
-ENTRYPOINT ["/app/cfst-daemon", "-config", "/app/config.yaml"]
+CMD ["/app/cfst-daemon", "-config", "/app/config.yaml"]

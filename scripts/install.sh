@@ -48,12 +48,6 @@ if [ ! -f .env ]; then
   fi
 fi
 
-if [ ! -f config.yaml ]; then
-  cp config.example.yaml config.yaml
-  echo "==> Created config.yaml"
-  echo "==> Edit config.yaml to set your domain and Cloudflare API token when ready."
-fi
-
 mkdir -p data
 
 echo "==> Starting service"
@@ -62,5 +56,4 @@ $COMPOSE up -d --build
 echo ""
 echo "ATO-CFIP is running."
 echo "Open: http://YOUR_NAS_IP:$WEB_PORT"
-echo "Config: $INSTALL_DIR/config.yaml"
-
+echo "Config is stored in the Docker volume: ato-cfip-config:/config/config.yaml"

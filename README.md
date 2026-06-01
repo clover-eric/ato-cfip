@@ -25,9 +25,8 @@ iwr -useb https://raw.githubusercontent.com/clover-eric/ato-cfip/main/scripts/in
 手动 Docker 部署：
 
 ```bash
-cp config.example.yaml config.yaml
 cp .env.example .env
-docker compose up -d --build
+docker compose up -d
 ```
 
 然后访问：
@@ -35,6 +34,20 @@ docker compose up -d --build
 ```text
 http://NAS_IP:8080
 ```
+
+`docker-compose.yml` 会自动创建配置卷和数据卷，并在第一次启动时生成 `/config/config.yaml`。如果你只想在 NAS 面板里粘贴 compose 文件，也可以直接使用仓库里的 `docker-compose.yml` 内容，不需要额外上传 `config.yaml`。
+
+如果要在首次启动时直接设置域名和 Cloudflare DNS：
+
+```env
+CFST_WEB_PORT=8080
+CFST_DOMAIN=best.example.com
+CFST_PUBLISH_MODE=cloudflare-dns
+CFST_CF_API_TOKEN=你的CloudflareToken
+CFST_CF_ZONE_ID=你的ZoneID
+```
+
+注意：这些环境变量只在第一次生成配置时写入。如果已经启动过，需要进入配置卷修改 `/config/config.yaml`，或删除配置卷后重建。
 
 如果在 Windows 本机测试：
 
@@ -120,6 +133,39 @@ test:
 - `data/best_ips.json`：当前发布的优选 IP 池
 - `data/hosts.txt`：hosts 格式结果
 - `data/results.jsonl`：历史记录，一行一个 JSON
+
+## NAS 拉镜像失败怎么办
+
+如果 NAS 无法连接 Docker Hub 或 GHCR，可以在电脑上构建离线镜像并导入 NAS。
+
+amd64 NAS：
+
+```powershell
+$env:GOOS="linux"
+$env:GOARCH="amd64"
+$env:CGO_ENABLED="0"
+go build -o ato-cfip ./cmd/cfst-daemon
+docker build -f Dockerfile.local -t ato-cfip:local .
+docker save ato-cfip:local -o ato-cfip-local.tar
+```
+
+arm64 NAS：
+
+```powershell
+$env:GOOS="linux"
+$env:GOARCH="arm64"
+$env:CGO_ENABLED="0"
+go build -o ato-cfip ./cmd/cfst-daemon
+docker build -f Dockerfile.local -t ato-cfip:local .
+docker save ato-cfip:local -o ato-cfip-local.tar
+```
+
+把 `ato-cfip-local.tar` 上传到 NAS：
+
+```bash
+docker load -i ato-cfip-local.tar
+docker compose -f docker-compose.local.yml up -d
+```
 
 ## 重要建议
 
