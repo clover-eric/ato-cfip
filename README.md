@@ -19,7 +19,7 @@ curl -fsSL -o docker-compose.yml https://raw.githubusercontent.com/clover-eric/a
 docker compose up -d --build
 ```
 
-这个版本不拉 GHCR 镜像，也不拉 golang/alpine 镜像；它会在构建时直接下载 GitHub Release 里的静态二进制和默认配置文件。
+这个版本不拉 GHCR 镜像，也不拉 golang/alpine 镜像；它会在构建时直接下载仓库里的静态二进制和默认配置文件。
 
 如果 NAS 面板不支持自动识别架构，可以直接使用固定架构版本：
 
