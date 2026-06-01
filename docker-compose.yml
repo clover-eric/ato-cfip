@@ -6,11 +6,11 @@ services:
     ports:
       - "${CFST_WEB_PORT:-8080}:8080"
     environment:
-      - TZ=Asia/Shanghai
-      - CFST_DOMAIN=${CFST_DOMAIN:-best.example.com}
-      - CFST_PUBLISH_MODE=${CFST_PUBLISH_MODE:-file}
-      - CFST_CF_API_TOKEN=${CFST_CF_API_TOKEN:-}
-      - CFST_CF_ZONE_ID=${CFST_CF_ZONE_ID:-}
+      TZ: Asia/Shanghai
+      CFST_DOMAIN: best.example.com
+      CFST_PUBLISH_MODE: file
+      CFST_CF_API_TOKEN: ""
+      CFST_CF_ZONE_ID: ""
     volumes:
       - ato-cfip-config:/config
       - ato-cfip-data:/data
@@ -19,6 +19,10 @@ services:
       - -c
       - |
         set -eu
+        : "${CFST_DOMAIN:=best.example.com}"
+        : "${CFST_PUBLISH_MODE:=file}"
+        : "${CFST_CF_API_TOKEN:=}"
+        : "${CFST_CF_ZONE_ID:=}"
         if [ ! -f /config/config.yaml ]; then
           cat > /config/config.yaml <<EOF
         server:

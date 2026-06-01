@@ -10,6 +10,17 @@
 
 ## 最简单部署
 
+### 单文件 Compose 部署
+
+如果你的 NAS 拉不动 Docker Hub/GHCR 镜像，优先使用这个文件：
+
+```bash
+curl -fsSL -o docker-compose.yml https://raw.githubusercontent.com/clover-eric/ato-cfip/main/docker-compose.standalone.yml
+docker compose up -d --build
+```
+
+这个版本不拉 GHCR 镜像，也不拉 golang/alpine 镜像；它会在构建时直接下载 GitHub Release 里的静态二进制和默认配置文件。
+
 Linux / NAS 一键安装：
 
 ```bash
@@ -136,7 +147,14 @@ test:
 
 ## NAS 拉镜像失败怎么办
 
-如果 NAS 无法连接 Docker Hub 或 GHCR，可以在电脑上构建离线镜像并导入 NAS。
+如果 NAS 无法连接 Docker Hub 或 GHCR，先试试单文件 Compose：
+
+```bash
+curl -fsSL -o docker-compose.yml https://raw.githubusercontent.com/clover-eric/ato-cfip/main/docker-compose.standalone.yml
+docker compose up -d --build
+```
+
+如果 NAS 连 GitHub Release 也无法访问，再在电脑上构建离线镜像并导入 NAS。
 
 amd64 NAS：
 
