@@ -3,8 +3,7 @@ services:
     build:
       dockerfile_inline: |
         FROM scratch
-        ARG TARGETARCH
-        ADD https://github.com/clover-eric/ato-cfip/releases/latest/download/ato-cfip-linux-$${TARGETARCH} /app/cfst-daemon
+        ADD https://github.com/clover-eric/ato-cfip/releases/latest/download/ato-cfip-linux-amd64 /app/cfst-daemon
         ADD https://raw.githubusercontent.com/clover-eric/ato-cfip/main/config.example.yaml /app/config.yaml
         ADD https://raw.githubusercontent.com/clover-eric/ato-cfip/main/ip.txt /app/ip.txt
         ADD https://raw.githubusercontent.com/clover-eric/ato-cfip/main/ipv6.txt /app/ipv6.txt
@@ -19,3 +18,4 @@ services:
 
 volumes:
   ato-cfip-data:
+
