@@ -1,0 +1,49 @@
+server:
+  run_on_start: false
+  schedule: "@every 1h"
+  timezone: "Asia/Shanghai"
+
+web:
+  enabled: true
+  listen: ":8080"
+  title: "CFST 优选节点"
+
+test:
+  rounds_per_hour: 1
+  desired_unique_ips: 1
+  max_extra_rounds: 0
+  ip_file: "ip.txt"
+  ip_text: "1.1.1.1,1.0.0.1,104.16.0.1"
+  ipv6: false
+  all_ip: false
+  port: 443
+  url: "https://cf.xiu2.xyz/url"
+  delay_threads: 20
+  ping_times: 1
+  download_time_seconds: 2
+  download_candidates: 1
+  min_delay_ms: 0
+  max_delay_ms: 9999
+  max_loss_rate: 1.0
+  min_speed_mb: 0.0
+  httping: false
+  httping_status_code: 0
+  cfcolo: ""
+
+publish:
+  mode: "file"
+  domain: "best.example.com"
+  ttl: 60
+  output_file: "data/smoke_best_ips.json"
+  hosts_file: "data/smoke_hosts.txt"
+  cloudflare:
+    api_token: ""
+    zone_id: ""
+    proxied: false
+
+storage:
+  history_path: "data/smoke_results.jsonl"
+  keep_days: 1
+
+log:
+  verbose: true

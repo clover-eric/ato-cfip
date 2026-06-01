@@ -1,0 +1,49 @@
+server:
+  run_on_start: true
+  schedule: "0 * * * *"
+  timezone: "Asia/Shanghai"
+
+web:
+  enabled: true
+  listen: ":8080"
+  title: "CFST 优选节点"
+
+test:
+  rounds_per_hour: 10
+  desired_unique_ips: 10
+  max_extra_rounds: 30
+  ip_file: "ip.txt"
+  ip_text: ""
+  ipv6: false
+  all_ip: false
+  port: 443
+  url: "https://cf.xiu2.xyz/url"
+  delay_threads: 200
+  ping_times: 4
+  download_time_seconds: 10
+  download_candidates: 10
+  min_delay_ms: 0
+  max_delay_ms: 9999
+  max_loss_rate: 1.0
+  min_speed_mb: 0.0
+  httping: false
+  httping_status_code: 0
+  cfcolo: ""
+
+publish:
+  mode: "file"
+  domain: "best.example.com"
+  ttl: 60
+  output_file: "data/best_ips.json"
+  hosts_file: "data/hosts.txt"
+  cloudflare:
+    api_token: ""
+    zone_id: ""
+    proxied: false
+
+storage:
+  history_path: "data/results.jsonl"
+  keep_days: 30
+
+log:
+  verbose: true

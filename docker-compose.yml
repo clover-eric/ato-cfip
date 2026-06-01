@@ -1,0 +1,13 @@
+services:
+  cfst-daemon:
+    image: ghcr.io/clover-eric/ato-cfip:latest
+    build: .
+    container_name: cfst-daemon
+    restart: unless-stopped
+    ports:
+      - "${CFST_WEB_PORT:-8080}:8080"
+    volumes:
+      - ./config.yaml:/app/config.yaml
+      - ./data:/app/data
+      - ./ip.txt:/app/ip.txt:ro
+      - ./ipv6.txt:/app/ipv6.txt:ro
