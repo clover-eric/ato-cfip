@@ -5,20 +5,6 @@ services:
     restart: unless-stopped
     ports:
       - "8080:8080"
-    environment:
-      # Change this to the domain you want to publish preferred Cloudflare IPs on.
-      # Example: cfip.example.com
-      ATO_DOMAIN: "best.example.com"
-      ATO_WEB_TITLE: "ATO CFIP"
-      ATO_ROUNDS: "10"
-      ATO_TARGET_IPS: "10"
-      ATO_DOWNLOAD_SECONDS: "10"
-      ATO_TEST_URL: "https://speed.cloudflare.com/__down?bytes=50000000"
-      # Keep "file" for local JSON/hosts output. Use "cloudflare" after setting token and zone id.
-      ATO_PUBLISH_MODE: "file"
-      # CLOUDFLARE_API_TOKEN: ""
-      # CLOUDFLARE_ZONE_ID: ""
-      # CLOUDFLARE_PROXIED: "false"
     volumes:
       - ato-cfip-data:/app/data
 

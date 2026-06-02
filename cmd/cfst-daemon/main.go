@@ -71,18 +71,24 @@ func main() {
 			}
 		}()
 	}
-	if cfg.Server.RunOnStart {
+	initialized := web.IsInitialized()
+	if !initialized {
+		log.Printf("first-time setup is required; open the dashboard to initialize")
+	}
+	if cfg.Server.RunOnStart && initialized {
 		go func() {
 			if err := runner.RunOnce(ctx); err != nil {
 				log.Printf("startup cycle failed: %v", err)
 			}
 		}()
 	}
-	go scheduleLoop(ctx, cfg.Server.Schedule, loc, func() {
-		if err := runner.RunOnce(ctx); err != nil {
-			log.Printf("scheduled cycle failed: %v", err)
-		}
-	})
+	if initialized {
+		go scheduleLoop(ctx, cfg.Server.Schedule, loc, func() {
+			if err := runner.RunOnce(ctx); err != nil {
+				log.Printf("scheduled cycle failed: %v", err)
+			}
+		})
+	}
 	<-ctx.Done()
 	log.Printf("shutting down")
 	if webServer != nil {

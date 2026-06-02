@@ -150,6 +150,35 @@ const dashboardHTML = `<!doctype html>
       background: rgba(255,255,255,.86);
     }
     .domain-tools[hidden] { display: none; }
+    .modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, .46);
+      display: grid;
+      place-items: center;
+      padding: 18px;
+      z-index: 20;
+    }
+    .modal[hidden] { display: none; }
+    .setup-card {
+      width: min(560px, 100%);
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      padding: 22px;
+    }
+    .setup-card h2 { font-size: 22px; margin-bottom: 8px; }
+    .setup-form { display: grid; gap: 12px; margin-top: 16px; }
+    .setup-form label { display: grid; gap: 6px; color: var(--muted); font-weight: 650; }
+    .setup-form input {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 11px 12px;
+      font: inherit;
+      color: var(--ink);
+    }
+    .error-text { color: var(--red); min-height: 20px; }
     .foot { color: var(--muted); margin-top: 18px; font-size: 13px; }
     @media (max-width: 860px) {
       header, .hero { grid-template-columns: 1fr; display: grid; }
@@ -233,6 +262,29 @@ const dashboardHTML = `<!doctype html>
     <div class="foot">页面每 5 秒自动刷新。完整测速会执行多轮任务，可能需要几分钟。</div>
   </div>
 
+  <div class="modal" id="setupModal" hidden>
+    <div class="setup-card">
+      <h2>首次初始化</h2>
+      <div class="sub">先设置管理员账户和基础域名。面板可以只用局域网 IP:端口 访问；优选域名不能带端口。</div>
+      <div class="setup-form">
+        <label>管理员账号
+          <input id="setupUser" value="admin" autocomplete="username">
+        </label>
+        <label>管理员密码
+          <input id="setupPassword" type="password" autocomplete="new-password" placeholder="至少 8 位">
+        </label>
+        <label>面板访问地址
+          <input id="setupPanel" placeholder="例如 192.168.1.10:18080 或 ip.is33.cn:666">
+        </label>
+        <label>优选 IP 域名
+          <input id="setupDomain" placeholder="例如 cfip.is33.cn，不能带端口">
+        </label>
+        <div class="error-text" id="setupError"></div>
+        <button class="primary" id="setupBtn" type="button">完成初始化</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     const fmt = new Intl.DateTimeFormat('zh-CN', { dateStyle: 'short', timeStyle: 'medium' });
     const runBtn = document.getElementById('runBtn');
@@ -242,7 +294,36 @@ const dashboardHTML = `<!doctype html>
     const domainInput = document.getElementById('domainInput');
     const saveDomainBtn = document.getElementById('saveDomainBtn');
     const cancelDomainBtn = document.getElementById('cancelDomainBtn');
+    const setupModal = document.getElementById('setupModal');
+    const setupBtn = document.getElementById('setupBtn');
     let currentDomain = '{{.Domain}}';
+
+    setupBtn.addEventListener('click', async () => {
+      const errBox = document.getElementById('setupError');
+      errBox.textContent = '';
+      setupBtn.classList.add('is-busy');
+      setupBtn.textContent = '保存中';
+      try {
+        const res = await fetch('/api/setup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            admin_user: document.getElementById('setupUser').value,
+            password: document.getElementById('setupPassword').value,
+            panel_url: document.getElementById('setupPanel').value,
+            domain: document.getElementById('setupDomain').value
+          })
+        });
+        if (!res.ok) throw new Error(await res.text());
+        setupModal.hidden = true;
+        await refresh();
+      } catch (err) {
+        errBox.textContent = err.message;
+      } finally {
+        setupBtn.classList.remove('is-busy');
+        setupBtn.textContent = '完成初始化';
+      }
+    });
 
     editDomainBtn.addEventListener('click', () => {
       domainInput.value = currentDomain;
@@ -306,6 +387,12 @@ const dashboardHTML = `<!doctype html>
     async function refresh() {
       const res = await fetch('/api/status', { cache: 'no-store' });
       const data = await res.json();
+      if (data.setup && !data.setup.initialized) {
+        setupModal.hidden = false;
+        const host = location.host || '';
+        if (!document.getElementById('setupPanel').value) document.getElementById('setupPanel').value = host;
+        if (!document.getElementById('setupDomain').value) document.getElementById('setupDomain').value = currentDomain === 'best.example.com' ? '' : currentDomain;
+      }
       const st = data.status;
       const cfg = data.config;
       const ips = st.published && st.published.ips ? st.published.ips : [];
