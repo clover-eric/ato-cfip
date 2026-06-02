@@ -1,6 +1,6 @@
 services:
   ato-cfip:
-    image: ghcr.io/clover-eric/ato-cfip:sha-45ec675
+    image: ghcr.io/clover-eric/ato-cfip:sha-3203df0
     pull_policy: always
     container_name: ato-cfip
     restart: unless-stopped
