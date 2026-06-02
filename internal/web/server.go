@@ -24,9 +24,11 @@ import (
 	"github.com/clover-eric/ato-cfip/internal/config"
 	"github.com/clover-eric/ato-cfip/internal/publisher"
 	"github.com/clover-eric/ato-cfip/internal/scheduler"
+	"github.com/clover-eric/ato-cfip/internal/subscription"
 )
 
 const runtimePath = "data/runtime.json"
+const subscriptionsPath = "data/subscriptions.json"
 
 type Server struct {
 	cfg       config.Config
@@ -36,6 +38,7 @@ type Server struct {
 	setupTpl  *template.Template
 	adminTpl  *template.Template
 	runtime   config.RuntimeConfig
+	subStore  *subscription.Store
 }
 
 type pageData struct {
@@ -52,6 +55,7 @@ func New(cfg config.Config, runner *scheduler.Runner) *Server {
 		setupTpl:  template.Must(template.New("setup").Parse(setupHTML)),
 		adminTpl:  template.Must(template.New("admin").Parse(polishAdminHTML(adminHTML))),
 		runtime:   loadRuntime(),
+		subStore:  subscription.NewStore(subscriptionsPath),
 	}
 	if s.runtime.Domain != "" {
 		s.runner.SetDomain(s.runtime.Domain)
@@ -80,8 +84,11 @@ func New(cfg config.Config, runner *scheduler.Runner) *Server {
 	mux.HandleFunc("/api/login", s.handleLogin)
 	mux.HandleFunc("/api/logout", s.handleLogout)
 	mux.HandleFunc("/api/account", s.handleAccount)
+	mux.HandleFunc("/api/subscriptions", s.handleSubscriptions)
+	mux.HandleFunc("/api/subscriptions/", s.handleSubscriptionItem)
 	mux.HandleFunc("/api/config/domain", s.handleDomain)
 	mux.HandleFunc("/api/cloudflare/bind", s.handleCloudflareBind)
+	mux.HandleFunc("/sub/", s.handlePublicSubscription)
 	mux.HandleFunc("/healthz", s.handleHealth)
 	s.server = &http.Server{
 		Addr:              cfg.Web.Listen,
@@ -92,6 +99,26 @@ func New(cfg config.Config, runner *scheduler.Runner) *Server {
 }
 
 func polishAdminHTML(html string) string {
+	html = strings.ReplaceAll(
+		html,
+		`<button id="domainBtn">&#32465;&#23450;&#22495;&#21517;</button><button id="accountBtn">`,
+		`<button id="domainBtn">&#32465;&#23450;&#22495;&#21517;</button><button id="subBtn">&#35746;&#38405;</button><button id="accountBtn">`,
+	)
+	html = strings.ReplaceAll(
+		html,
+		`<div class="modal" id="accountModal" hidden>`,
+		`<div class="modal" id="subModal" hidden><div class="box"><h2>&#29983;&#25104;&#20248;&#36873;&#35746;&#38405;&#38142;&#25509;</h2><div class="guide"><b>&#19968;&#38190;&#36866;&#37197;&#20248;&#36873;&#22495;&#21517;</b><br>&#31896;&#36148;&#20320;&#30340;&#26426;&#22330;&#35746;&#38405;&#38142;&#25509;&#12289;&#33258;&#24314;&#35746;&#38405;&#38142;&#25509;&#65292;&#25110;&#32773; VLESS / VMess / Trojan / SS &#31561;&#33410;&#28857;&#38142;&#25509;&#12290;&#31995;&#32479;&#20250;&#20445;&#30041;&#21407;&#33410;&#28857;&#30340; SNI&#12289;Host&#12289;&#36335;&#24452;&#12289;&#23494;&#38053;&#21644;&#31471;&#21475;&#65292;&#21482;&#25226;&#36830;&#25509;&#22320;&#22336;&#25442;&#25104;&#24403;&#21069;&#20248;&#36873;&#22495;&#21517;&#12290;</div><div class="form"><input id="subName" placeholder="&#21517;&#31216;&#65292;&#21487;&#36873;"><textarea id="subSource" placeholder="&#31896;&#36148;&#35746;&#38405;&#38142;&#25509;&#25110;&#33410;&#28857;&#38142;&#25509;&#65292;&#27599;&#34892;&#19968;&#20010;" style="min-height:160px;border:1px solid var(--line);border-radius:8px;padding:11px 12px;font:inherit;width:100%;resize:vertical"></textarea><div class="err" id="se"></div><button class="primary" id="genSub">&#19968;&#38190;&#29983;&#25104;</button><button id="closeSub">&#21462;&#28040;</button></div><div class="guide" id="subOut" hidden></div><div class="guide" id="subList"></div></div></div><div class="modal" id="accountModal" hidden>`,
+	)
+	html = strings.ReplaceAll(
+		html,
+		`domainBtn.onclick=()=>{domainModal.hidden=false;setStep(1)};accountBtn.onclick=()=>{`,
+		`domainBtn.onclick=()=>{domainModal.hidden=false;setStep(1)};subBtn.onclick=()=>{subModal.hidden=false;subOut.hidden=true;loadSubs()};closeSub.onclick=()=>subModal.hidden=true;genSub.onclick=genSubscription;accountBtn.onclick=()=>{`,
+	)
+	html = strings.ReplaceAll(
+		html,
+		`function renderTable(ips){`,
+		`async function genSubscription(){se.textContent='';genSub.disabled=true;genSub.textContent='生成中...';try{const d=await api('/api/subscriptions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:subName.value,source:subSource.value})});subOut.hidden=false;subOut.innerHTML='<b>生成成功</b><br><input id="subUrl" readonly value="'+esc(d.url)+'"><div class="actions"><button class="primary" id="copySub">复制链接</button><a class="btn" target="_blank" href="'+esc(d.url)+'">打开订阅</a></div><div class="sub">已改写 '+Number(d.converted||0)+' 个节点，输出格式 '+esc(String(d.encoding||''))+'</div>';copySub.onclick=()=>copyText(d.url);subSource.value='';loadSubs()}catch(e){se.textContent=e.message}finally{genSub.disabled=false;genSub.textContent='一键生成'}}async function loadSubs(){try{const d=await api('/api/subscriptions',{cache:'no-store'}),items=d.items||[];if(!items.length){subList.innerHTML='<b>已生成订阅</b><br><span class="sub">暂无订阅链接</span>';return}subList.innerHTML='<b>已生成订阅</b>'+items.map(x=>'<div class="row"><span>'+esc(x.name||'ATO CFIP')+'<br><span class="sub">'+esc(x.source_type||'raw')+'</span></span><span><input readonly value="'+esc(x.url)+'"><div class="actions"><button data-copy="'+esc(x.url)+'">复制</button><button data-del="'+esc(x.token)+'">删除</button></div></span></div>').join('');subList.querySelectorAll('[data-copy]').forEach(b=>b.onclick=()=>copyText(b.dataset.copy));subList.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>delSub(b.dataset.del))}catch(e){subList.innerHTML='<span class="err">'+esc(e.message)+'</span>'}}async function delSub(t){if(!confirm('确认删除这个订阅链接？'))return;await api('/api/subscriptions/'+encodeURIComponent(t),{method:'DELETE'});loadSubs()}function copyText(v){if(navigator.clipboard)navigator.clipboard.writeText(v)}function renderTable(ips){`,
+	)
 	html = strings.ReplaceAll(
 		html,
 		`['\u6bcf\u5c0f\u65f6\u8f6e\u6b21',c.rounds_per_hour],['\u4e0b\u8f7d\u5730\u5740',c.download_url],['\u76d1\u542c\u5730\u5740',c.web_listen]]`,
@@ -410,6 +437,150 @@ func (s *Server) handleAccount(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]string{"status": "saved", "admin_user": s.runtime.AdminUser})
 }
 
+func (s *Server) handleSubscriptions(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAuth(w, r) {
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		entries, err := s.subStore.List()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		items := make([]map[string]any, 0, len(entries))
+		for _, entry := range entries {
+			items = append(items, s.subscriptionSummary(r, entry))
+		}
+		writeJSON(w, map[string]any{"items": items})
+	case http.MethodPost:
+		var req struct {
+			Name   string `json:"name"`
+			Source string `json:"source"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid json body", http.StatusBadRequest)
+			return
+		}
+		source := strings.TrimSpace(req.Source)
+		if source == "" {
+			http.Error(w, "subscription source is required", http.StatusBadRequest)
+			return
+		}
+		cfg := s.runner.Config()
+		if !isConfiguredDomain(cfg.Publish.Domain) {
+			http.Error(w, "please bind a preferred domain before generating subscriptions", http.StatusBadRequest)
+			return
+		}
+		token, err := subscription.NewToken()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		now := time.Now()
+		entry := subscription.Entry{
+			Token:      token,
+			Name:       strings.TrimSpace(req.Name),
+			Source:     source,
+			SourceType: subscription.DetectSourceType(source),
+			CreatedAt:  now,
+			UpdatedAt:  now,
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 35*time.Second)
+		defer cancel()
+		result, err := subscription.Render(ctx, entry, cfg.Publish.Domain)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if result.Converted == 0 {
+			http.Error(w, "no supported proxy nodes were found in this subscription", http.StatusBadRequest)
+			return
+		}
+		if err := s.subStore.Save(entry); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		resp := s.subscriptionSummary(r, entry)
+		resp["converted"] = result.Converted
+		resp["encoding"] = result.Encoding
+		writeJSON(w, resp)
+	default:
+		w.Header().Set("Allow", "GET, POST")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handleSubscriptionItem(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAuth(w, r) {
+		return
+	}
+	token := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/subscriptions/"), "/")
+	if token == "" {
+		http.NotFound(w, r)
+		return
+	}
+	if r.Method != http.MethodDelete {
+		w.Header().Set("Allow", http.MethodDelete)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if err := s.subStore.Delete(token); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]string{"status": "deleted"})
+}
+
+func (s *Server) handlePublicSubscription(w http.ResponseWriter, r *http.Request) {
+	token := strings.Trim(strings.TrimPrefix(r.URL.Path, "/sub/"), "/")
+	if token == "" || strings.Contains(token, "/") {
+		http.NotFound(w, r)
+		return
+	}
+	entry, ok, err := s.subStore.Get(token)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	cfg := s.runner.Config()
+	if !isConfiguredDomain(cfg.Publish.Domain) {
+		http.Error(w, "preferred domain is not configured", http.StatusServiceUnavailable)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 35*time.Second)
+	defer cancel()
+	result, err := subscription.Render(ctx, entry, cfg.Publish.Domain)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-ATO-CFIP-Converted", strconv.Itoa(result.Converted))
+	w.Header().Set("X-ATO-CFIP-Encoding", result.Encoding)
+	_, _ = io.WriteString(w, result.Content)
+}
+
+func (s *Server) subscriptionSummary(r *http.Request, entry subscription.Entry) map[string]any {
+	name := entry.Name
+	if name == "" {
+		name = "ATO CFIP"
+	}
+	return map[string]any{
+		"token":       entry.Token,
+		"name":        name,
+		"source_type": entry.SourceType,
+		"created_at":  entry.CreatedAt,
+		"updated_at":  entry.UpdatedAt,
+		"url":         requestBaseURL(r) + "/sub/" + entry.Token,
+	}
+}
+
 func (s *Server) handleDomain(w http.ResponseWriter, r *http.Request) {
 	if !s.requireAuth(w, r) {
 		return
@@ -572,6 +743,22 @@ func writeJSON(w http.ResponseWriter, v any) {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	_ = enc.Encode(v)
+}
+
+func requestBaseURL(r *http.Request) string {
+	scheme := strings.TrimSpace(r.Header.Get("X-Forwarded-Proto"))
+	if scheme == "" {
+		if r.TLS != nil {
+			scheme = "https"
+		} else {
+			scheme = "http"
+		}
+	}
+	host := strings.TrimSpace(r.Header.Get("X-Forwarded-Host"))
+	if host == "" {
+		host = r.Host
+	}
+	return scheme + "://" + host
 }
 
 func normalizeDomain(input string) (string, string, error) {
