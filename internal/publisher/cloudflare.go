@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/clover-eric/ato-cfip/internal/model"
@@ -31,6 +32,17 @@ type cloudflareRecord struct {
 	Proxied bool   `json:"proxied"`
 }
 
+type CloudflareZone struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+type cloudflareZoneResponse struct {
+	Success bool              `json:"success"`
+	Errors  []cloudflareError `json:"errors"`
+	Result  []CloudflareZone  `json:"result"`
+}
+
 type cloudflareListResponse struct {
 	Success bool               `json:"success"`
 	Errors  []cloudflareError  `json:"errors"`
@@ -40,6 +52,7 @@ type cloudflareListResponse struct {
 type cloudflareMutationResponse struct {
 	Success bool              `json:"success"`
 	Errors  []cloudflareError `json:"errors"`
+	Result  cloudflareRecord  `json:"result"`
 }
 
 type cloudflareError struct {
@@ -82,6 +95,59 @@ func (p CloudflarePublisher) Publish(ctx context.Context, set model.PublishedSet
 		}
 	}
 	return nil
+}
+
+func FindZone(ctx context.Context, apiToken, domain string) (CloudflareZone, error) {
+	labels := strings.Split(strings.Trim(strings.ToLower(domain), "."), ".")
+	if len(labels) < 2 {
+		return CloudflareZone{}, fmt.Errorf("domain must contain at least two labels")
+	}
+	for i := 0; i < len(labels)-1; i++ {
+		name := strings.Join(labels[i:], ".")
+		zone, err := listZoneByName(ctx, apiToken, name)
+		if err != nil {
+			return CloudflareZone{}, err
+		}
+		if zone.ID != "" {
+			return zone, nil
+		}
+	}
+	return CloudflareZone{}, fmt.Errorf("no matching Cloudflare zone found for %s", domain)
+}
+
+func UpsertRecords(ctx context.Context, apiToken, zoneID, domain string, ips []string, ttl int, proxied bool) error {
+	if ttl <= 0 {
+		ttl = 60
+	}
+	pub := CloudflarePublisher{APIToken: apiToken, ZoneID: zoneID, Domain: domain, TTL: ttl, Proxied: proxied}
+	set := model.PublishedSet{Domain: domain}
+	for _, ip := range ips {
+		if strings.TrimSpace(ip) == "" {
+			continue
+		}
+		set.IPs = append(set.IPs, model.Result{IP: strings.TrimSpace(ip)})
+	}
+	return pub.Publish(ctx, set)
+}
+
+func listZoneByName(ctx context.Context, apiToken, name string) (CloudflareZone, error) {
+	endpoint := fmt.Sprintf("https://api.cloudflare.com/client/v4/zones?name=%s&per_page=1", url.QueryEscape(name))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return CloudflareZone{}, err
+	}
+	authorizeCloudflare(req, apiToken)
+	var out cloudflareZoneResponse
+	if err := doJSON(req, nil, &out); err != nil {
+		return CloudflareZone{}, err
+	}
+	if !out.Success {
+		return CloudflareZone{}, fmt.Errorf("cloudflare list zones failed: %v", out.Errors)
+	}
+	if len(out.Result) == 0 {
+		return CloudflareZone{}, nil
+	}
+	return out.Result[0], nil
 }
 
 func (p CloudflarePublisher) listRecords(ctx context.Context) ([]cloudflareRecord, error) {
@@ -142,7 +208,11 @@ func (p CloudflarePublisher) deleteRecord(ctx context.Context, id string) error 
 }
 
 func (p CloudflarePublisher) authorize(req *http.Request) {
-	req.Header.Set("Authorization", "Bearer "+p.APIToken)
+	authorizeCloudflare(req, p.APIToken)
+}
+
+func authorizeCloudflare(req *http.Request, apiToken string) {
+	req.Header.Set("Authorization", "Bearer "+apiToken)
 	req.Header.Set("Content-Type", "application/json")
 }
 

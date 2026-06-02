@@ -32,7 +32,7 @@ test:
 
 publish:
   mode: "file"
-  domain: "best.example.com"
+  domain: "not-configured.local"
   ttl: 60
   output_file: "data/best_ips.json"
   hosts_file: "data/hosts.txt"

@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/clover-eric/ato-cfip/internal/config"
+	"github.com/clover-eric/ato-cfip/internal/publisher"
 	"github.com/clover-eric/ato-cfip/internal/scheduler"
 )
 
@@ -55,6 +56,19 @@ func New(cfg config.Config, runner *scheduler.Runner) *Server {
 	if s.runtime.Domain != "" {
 		s.runner.SetDomain(s.runtime.Domain)
 	}
+	if s.runtime.Cloudflare.APIToken != "" && s.runtime.Cloudflare.ZoneID != "" && s.runtime.Domain != "" {
+		publishCfg := s.runner.Config().Publish
+		publishCfg.Mode = "cloudflare-dns"
+		publishCfg.Domain = s.runtime.Domain
+		publishCfg.Cloudflare.APIToken = s.runtime.Cloudflare.APIToken
+		publishCfg.Cloudflare.ZoneID = s.runtime.Cloudflare.ZoneID
+		publishCfg.Cloudflare.Proxied = s.runtime.Cloudflare.Proxied
+		if pub, err := publisher.New(publishCfg); err == nil {
+			s.runner.SetPublisher(publishCfg, pub)
+		} else {
+			log.Printf("load runtime cloudflare publisher failed: %v", err)
+		}
+	}
 	mux.HandleFunc("/", s.handleIndex)
 	mux.HandleFunc("/setup", s.handleSetupPage)
 	mux.HandleFunc("/admin", s.handleAdmin)
@@ -67,6 +81,7 @@ func New(cfg config.Config, runner *scheduler.Runner) *Server {
 	mux.HandleFunc("/api/logout", s.handleLogout)
 	mux.HandleFunc("/api/account", s.handleAccount)
 	mux.HandleFunc("/api/config/domain", s.handleDomain)
+	mux.HandleFunc("/api/cloudflare/bind", s.handleCloudflareBind)
 	mux.HandleFunc("/healthz", s.handleHealth)
 	s.server = &http.Server{
 		Addr:              cfg.Web.Listen,
@@ -160,9 +175,10 @@ func (s *Server) handlePublicStatus(w http.ResponseWriter, r *http.Request) {
 		},
 		"archive": stats,
 		"config": map[string]any{
-			"domain":          cfg.Publish.Domain,
-			"schedule":        cfg.Server.Schedule,
-			"rounds_per_hour": cfg.Test.RoundsPerHour,
+			"domain":            cfg.Publish.Domain,
+			"domain_configured": isConfiguredDomain(cfg.Publish.Domain),
+			"schedule":          cfg.Server.Schedule,
+			"rounds_per_hour":   cfg.Test.RoundsPerHour,
 		},
 	})
 }
@@ -192,6 +208,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 			"download_time":      cfg.Test.DownloadTimeSeconds,
 			"download_url":       cfg.Test.URL,
 			"web_listen":         cfg.Web.Listen,
+			"domain_configured":  isConfiguredDomain(cfg.Publish.Domain),
 		},
 	})
 }
@@ -400,6 +417,81 @@ func (s *Server) handleDomain(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) handleCloudflareBind(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAuth(w, r) {
+		return
+	}
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		Domain   string `json:"domain"`
+		APIToken string `json:"api_token"`
+		Proxied  bool   `json:"proxied"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json body", http.StatusBadRequest)
+		return
+	}
+	domain, note, err := normalizeDomain(req.Domain)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	token := strings.TrimSpace(req.APIToken)
+	if token == "" {
+		http.Error(w, "cloudflare api token is required", http.StatusBadRequest)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
+	defer cancel()
+	zone, err := publisher.FindZone(ctx, token, domain)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	cfg := s.runner.Config().Publish
+	cfg.Mode = "cloudflare-dns"
+	cfg.Domain = domain
+	cfg.Cloudflare.APIToken = token
+	cfg.Cloudflare.ZoneID = zone.ID
+	cfg.Cloudflare.Proxied = req.Proxied
+	pub, err := publisher.New(cfg)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	s.runner.SetPublisher(cfg, pub)
+	s.runtime.Domain = domain
+	s.runtime.Cloudflare = config.CloudflareRuntimeConfig{
+		APIToken: token,
+		ZoneID:   zone.ID,
+		ZoneName: zone.Name,
+		Proxied:  req.Proxied,
+	}
+	if err := saveRuntime(s.runtime); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	status := s.runner.Status()
+	if len(status.Published.IPs) > 0 {
+		if err := pub.Publish(ctx, status.Published); err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+	}
+	writeJSON(w, map[string]any{
+		"status":    "saved",
+		"domain":    domain,
+		"zone_id":   zone.ID,
+		"zone_name": zone.Name,
+		"published": len(status.Published.IPs),
+		"note":      note,
+	})
+}
+
 func (s *Server) requireSetup(w http.ResponseWriter) bool {
 	if s.runtime.Initialized {
 		return true
@@ -485,6 +577,11 @@ func normalizeDomain(input string) (string, string, error) {
 		return "", "", fmt.Errorf("invalid DNS host")
 	}
 	return host, note, nil
+}
+
+func isConfiguredDomain(domain string) bool {
+	domain = strings.TrimSpace(strings.ToLower(domain))
+	return domain != "" && domain != "not-configured.local" && domain != "best.example.com"
 }
 
 func hashPassword(password string) (string, error) {

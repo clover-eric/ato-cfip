@@ -93,12 +93,20 @@ func Load(path string) (Config, error) {
 }
 
 type RuntimeConfig struct {
-	Initialized   bool   `json:"initialized"`
-	AdminUser     string `json:"admin_user"`
-	PasswordHash  string `json:"password_hash"`
-	SessionSecret string `json:"session_secret"`
-	PanelURL      string `json:"panel_url"`
-	Domain        string `json:"domain"`
+	Initialized   bool                    `json:"initialized"`
+	AdminUser     string                  `json:"admin_user"`
+	PasswordHash  string                  `json:"password_hash"`
+	SessionSecret string                  `json:"session_secret"`
+	PanelURL      string                  `json:"panel_url"`
+	Domain        string                  `json:"domain"`
+	Cloudflare    CloudflareRuntimeConfig `json:"cloudflare"`
+}
+
+type CloudflareRuntimeConfig struct {
+	APIToken string `json:"api_token,omitempty"`
+	ZoneID   string `json:"zone_id,omitempty"`
+	ZoneName string `json:"zone_name,omitempty"`
+	Proxied  bool   `json:"proxied"`
 }
 
 func (c *Config) ApplyRuntime() {
@@ -134,16 +142,16 @@ func Defaults() Config {
 			IPFile:              "ip.txt",
 			Port:                443,
 			URL:                 "https://speed.cloudflare.com/__down?bytes=50000000",
-			DelayThreads:        200,
-			PingTimes:           4,
-			DownloadTimeSeconds: 10,
-			DownloadCandidates:  10,
+			DelayThreads:        500,
+			PingTimes:           2,
+			DownloadTimeSeconds: 5,
+			DownloadCandidates:  80,
 			MaxDelayMS:          9999,
 			MaxLossRate:         1.0,
 		},
 		Publish: PublishConfig{
 			Mode:       "file",
-			Domain:     "best.example.com",
+			Domain:     "not-configured.local",
 			TTL:        60,
 			OutputFile: "data/best_ips.json",
 			HostsFile:  "data/hosts.txt",

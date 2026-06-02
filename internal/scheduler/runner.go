@@ -103,19 +103,18 @@ func (r *Runner) RunOnce(ctx context.Context) error {
 			r.setProgress(round, len(selected), len(all), fmt.Sprintf("Round %d produced no positive-speed result", round))
 			continue
 		}
-		winner := firstNewWinner(results, selected)
-		if winner == nil {
-			log.Printf("round %d winner duplicated, no new unique IP found in candidate list", round)
+		added := addNewWinners(results, selected, r.cfg.Test.DesiredUniqueIPs)
+		if added == 0 {
+			log.Printf("round %d results duplicated, no new unique IP found in candidate list", round)
 			r.setProgress(round, len(selected), len(all), fmt.Sprintf("Round %d was duplicated, continuing", round))
 			continue
 		}
-		selected[winner.IP] = *winner
 		stage := fmt.Sprintf("Selected %d/%d IPs", len(selected), r.cfg.Test.DesiredUniqueIPs)
 		if zeroSpeed > 0 {
 			stage = fmt.Sprintf("%s; %d candidates had 0 MB/s download", stage, zeroSpeed)
 		}
 		r.setProgress(round, len(selected), len(all), stage)
-		log.Printf("round %d winner: %s %.2f MB/s %.2f ms", round, winner.IP, winner.DownloadMBps, winner.DelayMS)
+		log.Printf("round %d added %d IPs, selected=%d/%d", round, added, len(selected), r.cfg.Test.DesiredUniqueIPs)
 	}
 
 	final := make([]model.Result, 0, len(selected))
@@ -188,6 +187,14 @@ func (r *Runner) SetDomain(domain string) {
 	defer r.mu.Unlock()
 	r.cfg.Publish.Domain = domain
 	r.lastRun.Published.Domain = domain
+}
+
+func (r *Runner) SetPublisher(cfg config.PublishConfig, pub publisher.Publisher) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.cfg.Publish = cfg
+	r.publisher = pub
+	r.lastRun.Published.Domain = cfg.Domain
 }
 
 func (r *Runner) beginRun() bool {
@@ -286,13 +293,17 @@ func (r *Runner) finishRun(err error) {
 	}
 }
 
-func firstNewWinner(results []model.Result, selected map[string]model.Result) *model.Result {
+func addNewWinners(results []model.Result, selected map[string]model.Result, target int) int {
+	added := 0
 	for _, result := range results {
 		if _, exists := selected[result.IP]; exists {
 			continue
 		}
-		cp := result
-		return &cp
+		selected[result.IP] = result
+		added++
+		if len(selected) >= target {
+			break
+		}
 	}
-	return nil
+	return added
 }

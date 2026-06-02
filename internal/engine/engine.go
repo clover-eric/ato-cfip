@@ -272,25 +272,54 @@ func (e *Engine) download(ctx context.Context, pings []pingData, round int) []mo
 	if testNum > len(pings) || e.cfg.MinSpeedMB > 0 {
 		testNum = len(pings)
 	}
+	type downloadResult struct {
+		result *model.Result
+	}
 	results := make([]model.Result, 0, testNum)
+	out := make(chan downloadResult, testNum)
+	control := make(chan struct{}, minInt(8, testNum))
+	var wg sync.WaitGroup
+	var doneMu sync.Mutex
+	done := 0
+	usable := 0
 	for i := 0; i < testNum; i++ {
 		select {
 		case <-ctx.Done():
 			return results
 		default:
 		}
-		e.emit(Progress{Phase: "download", DelayDone: len(pings), DelayTotal: len(pings), Available: len(pings), DownloadDone: i, DownloadTotal: testNum, CurrentIP: pings[i].ip.String(), UsableResults: len(results)})
-		speed, colo := e.downloadHandler(ctx, pings[i].ip)
-		if pings[i].colo != "" {
-			colo = pings[i].colo
+		control <- struct{}{}
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			defer func() { <-control }()
+			ip := pings[i].ip.String()
+			e.emit(Progress{Phase: "download", DelayDone: len(pings), DelayTotal: len(pings), Available: len(pings), DownloadDone: done, DownloadTotal: testNum, CurrentIP: ip, UsableResults: usable})
+			speed, colo := e.downloadHandler(ctx, pings[i].ip)
+			if pings[i].colo != "" {
+				colo = pings[i].colo
+			}
+			var result *model.Result
+			if speed > 0 && speed >= e.cfg.MinSpeedMB*1024*1024 {
+				item := toResult(pings[i], speed, colo, round)
+				result = &item
+			}
+			doneMu.Lock()
+			done++
+			if result != nil {
+				usable++
+			}
+			e.emit(Progress{Phase: "download", DelayDone: len(pings), DelayTotal: len(pings), Available: len(pings), DownloadDone: done, DownloadTotal: testNum, LastIP: ip, LastSpeedMBps: speed / 1024 / 1024, UsableResults: usable})
+			doneMu.Unlock()
+			out <- downloadResult{result: result}
+		}(i)
+	}
+	wg.Wait()
+	close(out)
+	for item := range out {
+		if item.result != nil {
+			results = append(results, *item.result)
 		}
-		if speed > 0 && speed >= e.cfg.MinSpeedMB*1024*1024 {
-			results = append(results, toResult(pings[i], speed, colo, round))
-		}
-		if e.cfg.MinSpeedMB > 0 && len(results) >= e.cfg.DownloadCandidates {
-			break
-		}
-		e.emit(Progress{Phase: "download", DelayDone: len(pings), DelayTotal: len(pings), Available: len(pings), DownloadDone: i + 1, DownloadTotal: testNum, LastIP: pings[i].ip.String(), LastSpeedMBps: speed / 1024 / 1024, UsableResults: len(results)})
 	}
 	return results
 }
