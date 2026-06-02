@@ -33,6 +33,7 @@ func New(cfg config.Config, runner *scheduler.Runner) *Server {
 		tpl:    template.Must(template.New("dashboard").Parse(dashboardHTML)),
 	}
 	mux.HandleFunc("/", s.handleIndex)
+	mux.HandleFunc("/json", s.handleStatus)
 	mux.HandleFunc("/api/status", s.handleStatus)
 	mux.HandleFunc("/api/run", s.handleRun)
 	mux.HandleFunc("/healthz", s.handleHealth)

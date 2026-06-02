@@ -11,7 +11,6 @@ const dashboardHTML = `<!doctype html>
       color-scheme: light;
       --bg: #f5f7fb;
       --panel: #ffffff;
-      --panel-2: #eef4ff;
       --ink: #172033;
       --muted: #667085;
       --line: #d9e2f2;
@@ -166,7 +165,7 @@ const dashboardHTML = `<!doctype html>
         </div>
       </div>
       <div class="actions">
-        <a class="linkbtn" href="/api/status" target="_blank">JSON</a>
+        <a class="linkbtn" href="/json" target="_blank">JSON</a>
         <button class="primary" id="runBtn">立即测速</button>
       </div>
     </header>
@@ -235,9 +234,18 @@ const dashboardHTML = `<!doctype html>
       const dot = document.getElementById('stateDot');
       const txt = document.getElementById('stateText');
       dot.className = 'dot';
-      if (st.running) { dot.classList.add('running'); txt.textContent = '正在测速'; runBtn.disabled = true; }
-      else if (st.last_error) { dot.classList.add('error'); txt.textContent = st.last_error; runBtn.disabled = false; }
-      else { txt.textContent = ips.length ? '运行正常' : '等待首次结果'; runBtn.disabled = false; }
+      if (st.running) {
+        dot.classList.add('running');
+        txt.textContent = '正在测速';
+        runBtn.disabled = true;
+      } else if (st.last_error) {
+        dot.classList.add('error');
+        txt.textContent = st.last_error;
+        runBtn.disabled = false;
+      } else {
+        txt.textContent = ips.length ? '运行正常' : '等待首次结果';
+        runBtn.disabled = false;
+      }
       renderTable(ips);
       renderConfig(cfg);
     }
