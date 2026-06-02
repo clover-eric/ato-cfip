@@ -1,7 +1,7 @@
 data/
 config.yaml
-cfst-daemon
+/cfst-daemon
 cfst-daemon.exe
-ato-cfip
+/ato-cfip
 ato-cfip.exe
 dist/
