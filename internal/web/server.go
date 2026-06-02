@@ -163,13 +163,43 @@ func polishAdminHTML(html string) string {
 	)
 	html = strings.ReplaceAll(
 		html,
+		`<input id="bindDomain" placeholder="cf.example.com"><input id="bindTarget"`,
+		`<input id="bindDomain" placeholder="cf.example.com"><input id="bindPanelURL" placeholder="面板访问地址，留空默认 https://绑定域名"><input id="bindTarget"`,
+	)
+	html = strings.ReplaceAll(
+		html,
+		`try{const d=await api('/api/cloudflare/bind'`,
+		`try{if(!bindPanelURL.value&&bindDomain.value)bindPanelURL.value='https://'+bindDomain.value.trim();const d=await api('/api/cloudflare/bind'`,
+	)
+	html = strings.ReplaceAll(
+		html,
+		`JSON.stringify({domain:bindDomain.value,target:bindTarget.value,api_token:bindToken.value,proxied:false})`,
+		`JSON.stringify({domain:bindDomain.value,panel_url:bindPanelURL.value,target:bindTarget.value,api_token:bindToken.value,proxied:false})`,
+	)
+	html = strings.ReplaceAll(
+		html,
+		`'+d.csv_url;`,
+		`'+d.csv_url+'；订阅链接将使用 '+d.panel_url;`,
+	)
+	html = strings.ReplaceAll(
+		html,
 		`bindDone.textContent='域名 '+d.domain+' 已绑定到 Cloudflare Zone '+d.zone_name+'，已发布 IP 数量：'+d.published;`,
 		`bindDone.textContent='域名 '+d.domain+' 已指向 '+d.record_type+' '+d.target+'；CSV 结果源：'+d.csv_url;`,
 	)
 	html = strings.ReplaceAll(
 		html,
+		`'+d.csv_url;`,
+		`'+d.csv_url+'；订阅链接将使用 '+d.panel_url;`,
+	)
+	html = strings.ReplaceAll(
+		html,
 		`['\u76d1\u542c\u5730\u5740',c.web_listen]]`,
 		`['\u76d1\u542c\u5730\u5740',c.web_listen],['CSV \u7ed3\u679c\u6e90',c.csv_url||'/best.csv']]`,
+	)
+	html = strings.ReplaceAll(
+		html,
+		`['CSV \u7ed3\u679c\u6e90',c.csv_url||'/best.csv']]`,
+		`['\u9762\u677f\u8bbf\u95ee\u5730\u5740',c.panel_url||''],['CSV \u7ed3\u679c\u6e90',c.csv_url||'/best.csv']]`,
 	)
 	return html
 }
@@ -282,7 +312,8 @@ func (s *Server) handlePublicStatus(w http.ResponseWriter, r *http.Request) {
 			"domain_configured": isConfiguredDomain(cfg.Publish.Domain),
 			"schedule":          cfg.Server.Schedule,
 			"rounds_per_hour":   cfg.Test.RoundsPerHour,
-			"csv_url":           requestBaseURL(r) + "/best.csv",
+			"panel_url":         s.publicBaseURL(r),
+			"csv_url":           s.publicURL(r, "/best.csv"),
 		},
 	})
 }
@@ -318,7 +349,8 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 			"web_listen":          cfg.Web.Listen,
 			"domain_configured":   isConfiguredDomain(cfg.Publish.Domain),
 			"csv_file":            cfg.Publish.CSVFile,
-			"csv_url":             requestBaseURL(r) + "/best.csv",
+			"panel_url":           s.publicBaseURL(r),
+			"csv_url":             s.publicURL(r, "/best.csv"),
 		},
 	})
 }
@@ -659,7 +691,7 @@ func (s *Server) subscriptionSummary(r *http.Request, entry subscription.Entry) 
 		"source_type": entry.SourceType,
 		"created_at":  entry.CreatedAt,
 		"updated_at":  entry.UpdatedAt,
-		"url":         requestBaseURL(r) + "/sub/" + entry.Token,
+		"url":         s.publicURL(r, "/sub/"+entry.Token),
 	}
 }
 
@@ -673,7 +705,8 @@ func (s *Server) handleDomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Domain string `json:"domain"`
+		Domain   string `json:"domain"`
+		PanelURL string `json:"panel_url"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid json body", http.StatusBadRequest)
@@ -686,14 +719,25 @@ func (s *Server) handleDomain(w http.ResponseWriter, r *http.Request) {
 	}
 	s.runner.SetDomain(domain)
 	s.runtime.Domain = domain
+	panelURLRaw := strings.TrimSpace(req.PanelURL)
+	if panelURLRaw == "" {
+		panelURLRaw = "https://" + domain
+	}
+	panelURL, err := normalizePublicBaseURL(panelURLRaw, "https")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	s.runtime.PanelURL = panelURL
 	if err := saveRuntime(s.runtime); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	writeJSON(w, map[string]string{
-		"status": "saved",
-		"domain": domain,
-		"note":   note,
+		"status":    "saved",
+		"domain":    domain,
+		"panel_url": panelURL,
+		"note":      note,
 	})
 }
 
@@ -709,6 +753,7 @@ func (s *Server) handleCloudflareBind(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Domain   string `json:"domain"`
 		APIToken string `json:"api_token"`
+		PanelURL string `json:"panel_url"`
 		Target   string `json:"target"`
 		Proxied  bool   `json:"proxied"`
 	}
@@ -743,6 +788,15 @@ func (s *Server) handleCloudflareBind(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
+	panelURLRaw := strings.TrimSpace(req.PanelURL)
+	if panelURLRaw == "" {
+		panelURLRaw = "https://" + domain
+	}
+	panelURL, err := normalizePublicBaseURL(panelURLRaw, "https")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	cfg := s.runner.Config().Publish
 	cfg.Mode = "file"
 	cfg.Domain = domain
@@ -756,6 +810,7 @@ func (s *Server) handleCloudflareBind(w http.ResponseWriter, r *http.Request) {
 	}
 	s.runner.SetPublisher(cfg, pub)
 	s.runtime.Domain = domain
+	s.runtime.PanelURL = panelURL
 	s.runtime.Cloudflare = config.CloudflareRuntimeConfig{
 		APIToken: token,
 		ZoneID:   zone.ID,
@@ -781,7 +836,9 @@ func (s *Server) handleCloudflareBind(w http.ResponseWriter, r *http.Request) {
 		"record_type": record.RecordType,
 		"target":      record.Target,
 		"proxied":     record.Proxied,
-		"csv_url":     "https://" + domain + "/best.csv",
+		"panel_url":   panelURL,
+		"csv_url":     panelURL + "/best.csv",
+		"sub_base":    panelURL + "/sub/",
 		"published":   len(status.Published.IPs),
 		"note":        strings.TrimSpace(note + " " + targetNote),
 	})
@@ -856,6 +913,63 @@ func requestBaseURL(r *http.Request) string {
 		host = r.Host
 	}
 	return scheme + "://" + host
+}
+
+func (s *Server) publicURL(r *http.Request, path string) string {
+	base := strings.TrimRight(s.publicBaseURL(r), "/")
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	return base + path
+}
+
+func (s *Server) publicBaseURL(r *http.Request) string {
+	cfg := s.runner.Config()
+	base := strings.TrimSpace(s.runtime.PanelURL)
+	if base == "" && isConfiguredDomain(cfg.Publish.Domain) {
+		base = "https://" + cfg.Publish.Domain
+	}
+	if base != "" {
+		if normalized, err := normalizePublicBaseURL(base, requestScheme(r)); err == nil {
+			return normalized
+		}
+	}
+	return requestBaseURL(r)
+}
+
+func requestScheme(r *http.Request) string {
+	scheme := strings.TrimSpace(r.Header.Get("X-Forwarded-Proto"))
+	if scheme != "" {
+		return scheme
+	}
+	if r.TLS != nil {
+		return "https"
+	}
+	return "http"
+}
+
+func normalizePublicBaseURL(input, fallbackScheme string) (string, error) {
+	raw := strings.TrimSpace(input)
+	if raw == "" {
+		return "", fmt.Errorf("panel url is required")
+	}
+	if fallbackScheme == "" {
+		fallbackScheme = "https"
+	}
+	if !strings.Contains(raw, "://") {
+		raw = fallbackScheme + "://" + raw
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return "", fmt.Errorf("invalid panel url")
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return "", fmt.Errorf("panel url must start with http:// or https://")
+	}
+	u.Path = ""
+	u.RawQuery = ""
+	u.Fragment = ""
+	return strings.TrimRight(u.String(), "/"), nil
 }
 
 func detectPanelTarget(ctx context.Context, input string) (string, string, error) {
