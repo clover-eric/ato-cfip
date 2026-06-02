@@ -5,7 +5,7 @@ GITHUB_ACCELERATOR="${ATO_CFIP_GITHUB_ACCELERATOR:-https://github.i3.pub}"
 UPSTREAM_REPO_URL="${ATO_CFIP_UPSTREAM_REPO:-https://github.com/clover-eric/ato-cfip.git}"
 REPO_URL="${ATO_CFIP_REPO:-$GITHUB_ACCELERATOR/$UPSTREAM_REPO_URL}"
 INSTALL_DIR="${ATO_CFIP_DIR:-$HOME/ato-cfip}"
-WEB_PORT="${CFST_WEB_PORT:-8080}"
+WEB_PORT="${CFST_WEB_PORT:-33668}"
 
 need() {
   command -v "$1" >/dev/null 2>&1
@@ -45,7 +45,7 @@ cd "$INSTALL_DIR"
 
 if [ ! -f .env ]; then
   cp .env.example .env
-  if [ "$WEB_PORT" != "8080" ]; then
+  if [ "$WEB_PORT" != "33668" ]; then
     sed -i.bak "s/^CFST_WEB_PORT=.*/CFST_WEB_PORT=$WEB_PORT/" .env && rm -f .env.bak
   fi
 fi

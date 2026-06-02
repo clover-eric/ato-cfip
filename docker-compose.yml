@@ -7,7 +7,7 @@ services:
     environment:
       ATO_CFIP_GITHUB_ACCELERATOR: "https://github.i3.pub"
     ports:
-      - "8080:8080"
+      - "33668:8080"
     volumes:
       - ato-cfip-data:/app/data
 

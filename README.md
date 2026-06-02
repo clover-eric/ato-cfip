@@ -13,7 +13,7 @@ services:
     container_name: ato-cfip
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      - "33668:8080"
     volumes:
       - ato-cfip-data:/app/data
 
@@ -30,13 +30,13 @@ docker compose up -d
 访问：
 
 ```text
-http://NAS_IP:8080
+http://NAS_IP:33668
 ```
 
 首次打开会进入独立初始化页面，设置管理员账户和密码后自动跳转到：
 
 ```text
-http://NAS_IP:8080/admin
+http://NAS_IP:33668/admin
 ```
 
 ## 国内 GitHub 加速安装
@@ -78,7 +78,7 @@ ATO_CFIP_REPO=https://github.com/clover-eric/ato-cfip.git sh scripts/install.sh
 
 ## 域名说明
 
-面板可以使用 `IP:端口` 或 `域名:端口` 访问。
+面板可以使用 `IP:端口` 或 `域名:端口` 访问，默认端口为 `33668`。
 
 优选域名本身不能带端口。后台的“绑定域名”会引导用户把 DNS A 记录指向自己的公网 IP。没有公网 IP 的用户可以先只在局域网使用面板，后续再接入 Cloudflare Tunnel、FRP 或 Tailscale Funnel。
 

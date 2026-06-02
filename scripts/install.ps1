@@ -3,7 +3,7 @@ param(
     [string]$GitHubAccelerator = "https://github.i3.pub",
     [string]$UpstreamRepoUrl = "https://github.com/clover-eric/ato-cfip.git",
     [string]$RepoUrl = "",
-    [int]$WebPort = 8080
+    [int]$WebPort = 33668
 )
 
 $ErrorActionPreference = "Stop"
