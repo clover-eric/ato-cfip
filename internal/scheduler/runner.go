@@ -25,13 +25,18 @@ type Runner struct {
 }
 
 type RunStatus struct {
-	Running     bool               `json:"running"`
-	LastStarted *time.Time         `json:"last_started,omitempty"`
-	LastEnded   *time.Time         `json:"last_ended,omitempty"`
-	LastError   string             `json:"last_error,omitempty"`
-	Published   model.PublishedSet `json:"published"`
-	Rounds      int                `json:"rounds"`
-	Target      int                `json:"target"`
+	Running      bool               `json:"running"`
+	LastStarted  *time.Time         `json:"last_started,omitempty"`
+	LastEnded    *time.Time         `json:"last_ended,omitempty"`
+	LastError    string             `json:"last_error,omitempty"`
+	Published    model.PublishedSet `json:"published"`
+	Rounds       int                `json:"rounds"`
+	Target       int                `json:"target"`
+	CurrentRound int                `json:"current_round"`
+	Selected     int                `json:"selected"`
+	Candidates   int                `json:"candidates"`
+	Stage        string             `json:"stage"`
+	ElapsedSec   int64              `json:"elapsed_sec"`
 }
 
 func NewRunner(cfg config.Config, st *store.Store, pub publisher.Publisher) *Runner {
@@ -70,22 +75,27 @@ func (r *Runner) RunOnce(ctx context.Context) error {
 		if round > r.cfg.Test.RoundsPerHour && len(selected) >= r.cfg.Test.DesiredUniqueIPs {
 			break
 		}
+		r.setProgress(round, len(selected), len(all), "Scanning candidate IPs")
 		results, err := engine.New(r.cfg.Test).Run(ctx, round)
 		if err != nil {
 			log.Printf("round %d failed: %v", round, err)
+			r.setProgress(round, len(selected), len(all), fmt.Sprintf("Round %d failed: %v", round, err))
 			continue
 		}
 		if len(results) == 0 {
 			log.Printf("round %d produced no usable result", round)
+			r.setProgress(round, len(selected), len(all), fmt.Sprintf("Round %d produced no usable result", round))
 			continue
 		}
 		all = append(all, results...)
 		winner := firstNewWinner(results, selected)
 		if winner == nil {
 			log.Printf("round %d winner duplicated, no new unique IP found in candidate list", round)
+			r.setProgress(round, len(selected), len(all), fmt.Sprintf("Round %d was duplicated, continuing", round))
 			continue
 		}
 		selected[winner.IP] = *winner
+		r.setProgress(round, len(selected), len(all), fmt.Sprintf("Selected %d/%d IPs", len(selected), r.cfg.Test.DesiredUniqueIPs))
 		log.Printf("round %d winner: %s %.2f MB/s %.2f ms", round, winner.IP, winner.DownloadMBps, winner.DelayMS)
 	}
 
@@ -136,6 +146,9 @@ func (r *Runner) Status() RunStatus {
 	status.Running = r.running
 	status.Rounds = r.cfg.Test.RoundsPerHour
 	status.Target = r.cfg.Test.DesiredUniqueIPs
+	if status.Running && status.LastStarted != nil {
+		status.ElapsedSec = int64(time.Since(*status.LastStarted).Seconds())
+	}
 	return status
 }
 
@@ -159,12 +172,26 @@ func (r *Runner) setStarted(t time.Time) {
 	r.lastRun.Running = true
 	r.lastRun.LastStarted = &t
 	r.lastRun.LastError = ""
+	r.lastRun.CurrentRound = 0
+	r.lastRun.Selected = 0
+	r.lastRun.Candidates = 0
+	r.lastRun.Stage = "Preparing"
+}
+
+func (r *Runner) setProgress(round, selected, candidates int, stage string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.lastRun.CurrentRound = round
+	r.lastRun.Selected = selected
+	r.lastRun.Candidates = candidates
+	r.lastRun.Stage = stage
 }
 
 func (r *Runner) setPublished(set model.PublishedSet) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.lastRun.Published = set
+	r.lastRun.Selected = len(set.IPs)
 }
 
 func (r *Runner) finishRun(err error) {
@@ -176,6 +203,9 @@ func (r *Runner) finishRun(err error) {
 	r.lastRun.LastEnded = &ended
 	if err != nil {
 		r.lastRun.LastError = err.Error()
+		r.lastRun.Stage = err.Error()
+	} else {
+		r.lastRun.Stage = "Finished"
 	}
 }
 

@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"os"
+	"strconv"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -85,6 +86,7 @@ func Load(path string) (Config, error) {
 	if err := yaml.Unmarshal(b, &cfg); err != nil {
 		return cfg, err
 	}
+	cfg.ApplyEnv()
 	return cfg, cfg.Validate()
 }
 
@@ -98,7 +100,7 @@ func Defaults() Config {
 		Web: WebConfig{
 			Enabled: true,
 			Listen:  ":8080",
-			Title:   "CFST 优选节点",
+			Title:   "ATO CFIP",
 		},
 		Test: TestConfig{
 			RoundsPerHour:       10,
@@ -127,6 +129,38 @@ func Defaults() Config {
 		},
 		Log: LogConfig{Verbose: true},
 	}
+}
+
+func (c *Config) ApplyEnv() {
+	envString("ATO_WEB_TITLE", &c.Web.Title)
+	envString("ATO_WEB_LISTEN", &c.Web.Listen)
+	envString("ATO_SCHEDULE", &c.Server.Schedule)
+	envString("ATO_TIMEZONE", &c.Server.Timezone)
+	envBool("ATO_RUN_ON_START", &c.Server.RunOnStart)
+
+	envString("ATO_DOMAIN", &c.Publish.Domain)
+	envString("ATO_PUBLISH_MODE", &c.Publish.Mode)
+	envString("ATO_OUTPUT_FILE", &c.Publish.OutputFile)
+	envString("ATO_HOSTS_FILE", &c.Publish.HostsFile)
+	envString("CLOUDFLARE_API_TOKEN", &c.Publish.Cloudflare.APIToken)
+	envString("CLOUDFLARE_ZONE_ID", &c.Publish.Cloudflare.ZoneID)
+	envBool("CLOUDFLARE_PROXIED", &c.Publish.Cloudflare.Proxied)
+
+	envString("ATO_TEST_URL", &c.Test.URL)
+	envString("ATO_IP_TEXT", &c.Test.IPText)
+	envString("ATO_IP_FILE", &c.Test.IPFile)
+	envInt("ATO_ROUNDS", &c.Test.RoundsPerHour)
+	envInt("ATO_TARGET_IPS", &c.Test.DesiredUniqueIPs)
+	envInt("ATO_MAX_EXTRA_ROUNDS", &c.Test.MaxExtraRounds)
+	envInt("ATO_DOWNLOAD_SECONDS", &c.Test.DownloadTimeSeconds)
+	envInt("ATO_DOWNLOAD_CANDIDATES", &c.Test.DownloadCandidates)
+	envInt("ATO_DELAY_THREADS", &c.Test.DelayThreads)
+	envInt("ATO_PING_TIMES", &c.Test.PingTimes)
+	envInt("ATO_PORT", &c.Test.Port)
+	envBool("ATO_IPV6", &c.Test.IPv6)
+	envBool("ATO_ALL_IP", &c.Test.AllIP)
+	envBool("ATO_HTTPING", &c.Test.HTTPing)
+	envFloat("ATO_MIN_SPEED_MB", &c.Test.MinSpeedMB)
 }
 
 func (c Config) Validate() error {
@@ -162,4 +196,34 @@ func (c TestConfig) DownloadTimeout() time.Duration {
 		return 10 * time.Second
 	}
 	return time.Duration(c.DownloadTimeSeconds) * time.Second
+}
+
+func envString(name string, target *string) {
+	if v := os.Getenv(name); v != "" {
+		*target = v
+	}
+}
+
+func envInt(name string, target *int) {
+	if v := os.Getenv(name); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			*target = n
+		}
+	}
+}
+
+func envBool(name string, target *bool) {
+	if v := os.Getenv(name); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			*target = b
+		}
+	}
+}
+
+func envFloat(name string, target *float64) {
+	if v := os.Getenv(name); v != "" {
+		if n, err := strconv.ParseFloat(v, 64); err == nil {
+			*target = n
+		}
+	}
 }

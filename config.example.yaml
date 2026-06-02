@@ -6,7 +6,7 @@ server:
 web:
   enabled: true
   listen: ":8080"
-  title: "CFST 优选节点"
+  title: "ATO CFIP"
 
 test:
   rounds_per_hour: 10
