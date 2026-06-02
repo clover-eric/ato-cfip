@@ -138,6 +138,18 @@ const dashboardHTML = `<!doctype html>
     .row span:last-child { font-weight: 750; text-align: right; overflow-wrap: anywhere; }
     .empty { padding: 28px 18px; color: var(--muted); }
     .notice { margin-top: 14px; color: var(--muted); max-width: 760px; }
+    .domain-tools { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 12px; }
+    .domain-tools input {
+      min-width: min(420px, 100%);
+      flex: 1;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px 12px;
+      font: inherit;
+      color: var(--ink);
+      background: rgba(255,255,255,.86);
+    }
+    .domain-tools[hidden] { display: none; }
     .foot { color: var(--muted); margin-top: 18px; font-size: 13px; }
     @media (max-width: 860px) {
       header, .hero { grid-template-columns: 1fr; display: grid; }
@@ -168,8 +180,16 @@ const dashboardHTML = `<!doctype html>
     <div class="hero">
       <div>
         <div class="badge"><span class="dot" id="stateDot"></span><span id="stateText">Loading</span></div>
-        <div class="domain">{{.Domain}}</div>
+        <div class="domain" id="domainText">{{.Domain}}</div>
         <div class="sub">Point your client DNS or service domain to this name after Cloudflare DNS publishing is enabled.</div>
+        <div class="domain-tools">
+          <button id="editDomainBtn" type="button">Edit domain</button>
+        </div>
+        <div class="domain-tools" id="domainEditor" hidden>
+          <input id="domainInput" type="text" spellcheck="false" placeholder="example.com or https://example.com:666/">
+          <button id="saveDomainBtn" type="button">Save</button>
+          <button id="cancelDomainBtn" type="button">Cancel</button>
+        </div>
         <div class="notice" id="stageText">Waiting for status.</div>
         <div class="progress">
           <div class="mini"><div class="k">Round</div><div class="v" id="roundNow">-</div></div>
@@ -216,6 +236,58 @@ const dashboardHTML = `<!doctype html>
   <script>
     const fmt = new Intl.DateTimeFormat('zh-CN', { dateStyle: 'short', timeStyle: 'medium' });
     const runBtn = document.getElementById('runBtn');
+    const domainText = document.getElementById('domainText');
+    const editDomainBtn = document.getElementById('editDomainBtn');
+    const domainEditor = document.getElementById('domainEditor');
+    const domainInput = document.getElementById('domainInput');
+    const saveDomainBtn = document.getElementById('saveDomainBtn');
+    const cancelDomainBtn = document.getElementById('cancelDomainBtn');
+    let currentDomain = '{{.Domain}}';
+
+    editDomainBtn.addEventListener('click', () => {
+      domainInput.value = currentDomain;
+      domainEditor.hidden = false;
+      editDomainBtn.hidden = true;
+      domainInput.focus();
+      domainInput.select();
+    });
+    cancelDomainBtn.addEventListener('click', () => {
+      domainEditor.hidden = true;
+      editDomainBtn.hidden = false;
+    });
+    saveDomainBtn.addEventListener('click', saveDomain);
+    domainInput.addEventListener('keydown', event => {
+      if (event.key === 'Enter') saveDomain();
+      if (event.key === 'Escape') cancelDomainBtn.click();
+    });
+
+    async function saveDomain() {
+      saveDomainBtn.classList.add('is-busy');
+      saveDomainBtn.textContent = 'Saving';
+      try {
+        const res = await fetch('/api/config/domain', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ domain: domainInput.value })
+        });
+        if (!res.ok) {
+          throw new Error(await res.text());
+        }
+        const data = await res.json();
+        currentDomain = data.domain;
+        domainText.textContent = data.domain;
+        document.getElementById('stageText').textContent = data.note || 'Domain saved.';
+        domainEditor.hidden = true;
+        editDomainBtn.hidden = false;
+        refresh();
+      } catch (err) {
+        document.getElementById('stageText').textContent = 'Save failed: ' + err.message;
+      } finally {
+        saveDomainBtn.classList.remove('is-busy');
+        saveDomainBtn.textContent = 'Save';
+      }
+    }
+
     runBtn.addEventListener('click', async () => {
       if (runBtn.dataset.pending === 'true') return;
       runBtn.dataset.pending = 'true';
@@ -237,6 +309,8 @@ const dashboardHTML = `<!doctype html>
       const st = data.status;
       const cfg = data.config;
       const ips = st.published && st.published.ips ? st.published.ips : [];
+      currentDomain = cfg.domain || currentDomain;
+      domainText.textContent = currentDomain;
 
       document.getElementById('count').textContent = ips.length;
       document.getElementById('target').textContent = st.target || cfg.desired_unique_ips || '-';
@@ -287,6 +361,7 @@ const dashboardHTML = `<!doctype html>
     function renderConfig(cfg) {
       document.getElementById('configBox').innerHTML = [
         ['Publish mode', cfg.publish_mode],
+        ['Domain', cfg.domain],
         ['Schedule', cfg.schedule],
         ['Rounds', cfg.rounds_per_hour],
         ['Download time', cfg.download_time + 's'],

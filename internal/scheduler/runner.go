@@ -153,7 +153,16 @@ func (r *Runner) Status() RunStatus {
 }
 
 func (r *Runner) Config() config.Config {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	return r.cfg
+}
+
+func (r *Runner) SetDomain(domain string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.cfg.Publish.Domain = domain
+	r.lastRun.Published.Domain = domain
 }
 
 func (r *Runner) beginRun() bool {

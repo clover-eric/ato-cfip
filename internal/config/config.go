@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"strconv"
@@ -87,7 +88,26 @@ func Load(path string) (Config, error) {
 		return cfg, err
 	}
 	cfg.ApplyEnv()
+	cfg.ApplyRuntime()
 	return cfg, cfg.Validate()
+}
+
+type RuntimeConfig struct {
+	Domain string `json:"domain"`
+}
+
+func (c *Config) ApplyRuntime() {
+	b, err := os.ReadFile("data/runtime.json")
+	if err != nil {
+		return
+	}
+	var runtime RuntimeConfig
+	if err := json.Unmarshal(b, &runtime); err != nil {
+		return
+	}
+	if runtime.Domain != "" {
+		c.Publish.Domain = runtime.Domain
+	}
 }
 
 func Defaults() Config {
