@@ -94,6 +94,25 @@ func (e *Engine) Run(ctx context.Context, round int) ([]model.Result, error) {
 	if err != nil {
 		return nil, err
 	}
+	return e.runCandidates(ctx, ips, round)
+}
+
+func (e *Engine) RunIPs(ctx context.Context, candidates []string, round int) ([]model.Result, error) {
+	ips := make([]*net.IPAddr, 0, len(candidates))
+	for _, candidate := range candidates {
+		ip := net.ParseIP(strings.TrimSpace(candidate))
+		if ip == nil {
+			continue
+		}
+		if !e.cfg.IPv6 && ip.To4() == nil {
+			continue
+		}
+		ips = append(ips, &net.IPAddr{IP: ip})
+	}
+	return e.runCandidates(ctx, ips, round)
+}
+
+func (e *Engine) runCandidates(ctx context.Context, ips []*net.IPAddr, round int) ([]model.Result, error) {
 	if len(ips) == 0 {
 		return nil, fmt.Errorf("no candidate IPs loaded")
 	}

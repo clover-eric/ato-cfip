@@ -148,9 +148,9 @@ func Defaults() Config {
 			DownloadTimeSeconds: 10,
 			DownloadCandidates:  20,
 			DownloadThreads:     1,
-			MaxDelayMS:          9999,
+			MaxDelayMS:          60,
 			MaxLossRate:         1.0,
-			MinSpeedMB:          5,
+			MinSpeedMB:          30,
 		},
 		Publish: PublishConfig{
 			Mode:       "file",
@@ -193,10 +193,13 @@ func (c *Config) ApplyEnv() {
 	envInt("ATO_DOWNLOAD_THREADS", &c.Test.DownloadThreads)
 	envInt("ATO_DELAY_THREADS", &c.Test.DelayThreads)
 	envInt("ATO_PING_TIMES", &c.Test.PingTimes)
+	envInt("ATO_MIN_DELAY_MS", &c.Test.MinDelayMS)
+	envInt("ATO_MAX_DELAY_MS", &c.Test.MaxDelayMS)
 	envInt("ATO_PORT", &c.Test.Port)
 	envBool("ATO_IPV6", &c.Test.IPv6)
 	envBool("ATO_ALL_IP", &c.Test.AllIP)
 	envBool("ATO_HTTPING", &c.Test.HTTPing)
+	envFloat("ATO_MAX_LOSS_RATE", &c.Test.MaxLossRate)
 	envFloat("ATO_MIN_SPEED_MB", &c.Test.MinSpeedMB)
 }
 

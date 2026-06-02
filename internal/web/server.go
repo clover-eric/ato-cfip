@@ -122,12 +122,17 @@ func polishAdminHTML(html string) string {
 	html = strings.ReplaceAll(
 		html,
 		`['\u6bcf\u5c0f\u65f6\u8f6e\u6b21',c.rounds_per_hour],['\u4e0b\u8f7d\u5730\u5740',c.download_url],['\u76d1\u542c\u5730\u5740',c.web_listen]]`,
-		`['\u6bcf\u5c0f\u65f6\u8f6e\u6b21',c.rounds_per_hour],['\u6700\u4f4e\u53d1\u5e03\u901f\u5ea6',Number(c.min_speed_mb||0).toFixed(1)+' MB/s'],['\u4e0b\u8f7d\u5019\u9009\u6570',c.download_candidates],['\u4e0b\u8f7d\u7ebf\u7a0b',c.download_threads],['\u4e0b\u8f7d\u5730\u5740',c.download_url],['\u76d1\u542c\u5730\u5740',c.web_listen]]`,
+		`['\u6bcf\u5c0f\u65f6\u8f6e\u6b21',c.rounds_per_hour],['\u6700\u4f4e\u53d1\u5e03\u901f\u5ea6',Number(c.min_speed_mb||0).toFixed(1)+' MB/s'],['\u6700\u5927\u53d1\u5e03\u5ef6\u8fdf',Number(c.max_delay_ms||0)+' ms'],['\u4e0b\u8f7d\u5019\u9009\u6570',c.download_candidates],['\u4e0b\u8f7d\u7ebf\u7a0b',c.download_threads],['\u4e0b\u8f7d\u5730\u5740',c.download_url],['\u76d1\u542c\u5730\u5740',c.web_listen]]`,
 	)
 	html = strings.ReplaceAll(
 		html,
 		`\u6682\u65e0\u53d1\u5e03\u7ed3\u679c\uff0c\u6216\u672c\u8f6e\u672a\u6d4b\u5230\u6709\u6548\u4e0b\u8f7d\u901f\u5ea6`,
 		`\u6682\u65e0\u53d1\u5e03\u7ed3\u679c\uff0c\u6216\u672c\u8f6e\u672a\u6d4b\u5230\u8fbe\u6807\u901f\u5ea6\u7684 IP`,
+	)
+	html = strings.ReplaceAll(
+		html,
+		`<td>'+x.round+'</td>`,
+		`<td>'+(x.round===0?'\u6c60':x.round)+'</td>`,
 	)
 	html = strings.ReplaceAll(
 		html,
@@ -138,6 +143,11 @@ func polishAdminHTML(html string) string {
 		html,
 		`.replace(/Round (\d+) produced no positive-speed result/,'\u7b2c $1 \u8f6e\u672a\u6d4b\u5230\u6709\u6548\u901f\u5ea6')`,
 		`.replace(/Round (\d+) produced no IP above ([0-9.]+) MB\/s/,'\u7b2c $1 \u8f6e\u6ca1\u6709\u8fbe\u5230 $2 MB/s \u7684 IP').replace(/Round (\d+) produced no positive-speed result/,'\u7b2c $1 \u8f6e\u672a\u6d4b\u5230\u6709\u6548\u901f\u5ea6')`,
+	)
+	html = strings.ReplaceAll(
+		html,
+		`return v.replace('Finished','\u8fd0\u884c\u5b8c\u6210')`,
+		`return v.replace('Finished','\u8fd0\u884c\u5b8c\u6210').replace(/Rechecking stable IP pool (\d+)\/(\d+)/,'\u590d\u6d4b\u7a33\u5b9a IP \u6c60 $1/$2').replace(/Pool recheck kept (\d+)\/(\d+) IPs, (\d+) need replacement/,'IP \u6c60\u590d\u6d4b\u4fdd\u7559 $1/$2\uff0c\u9700\u66ff\u6362 $3 \u4e2a').replace(/Scanning public IP library, need (\d+) replacements/,'\u6b63\u5728\u4ece\u516c\u5171 IP \u5e93\u8865\u5145 $1 \u4e2a\u66ff\u6362 IP').replace(/qualified IP pool incomplete: (\d+)\/(\d+) IPs meet speed >= ([0-9.]+) MB\/s and delay <= (\d+) ms; keeping previous published pool/,'\u8fbe\u6807 IP \u6c60\u672a\u51d1\u6ee1\uff1a$1/$2\uff08\u2265 $3 MB/s\uff0c\u2264 $4 ms\uff09\uff0c\u5df2\u4fdd\u7559\u4e0a\u4e00\u7248\u53d1\u5e03\u7ed3\u679c')`,
 	)
 	return html
 }
@@ -260,6 +270,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 			"download_candidates": cfg.Test.DownloadCandidates,
 			"download_threads":    cfg.Test.DownloadThreads,
 			"min_speed_mb":        cfg.Test.MinSpeedMB,
+			"max_delay_ms":        cfg.Test.MaxDelayMS,
 			"download_url":        cfg.Test.URL,
 			"web_listen":          cfg.Web.Listen,
 			"domain_configured":   isConfiguredDomain(cfg.Publish.Domain),

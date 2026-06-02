@@ -16,13 +16,21 @@ import (
 )
 
 type Runner struct {
-	cfg       config.Config
-	store     *store.Store
-	publisher publisher.Publisher
-	mu        sync.Mutex
-	running   bool
-	lastRun   RunStatus
+	cfg           config.Config
+	store         *store.Store
+	publisher     publisher.Publisher
+	engineFactory engineFactory
+	mu            sync.Mutex
+	running       bool
+	lastRun       RunStatus
 }
+
+type speedEngine interface {
+	Run(ctx context.Context, round int) ([]model.Result, error)
+	RunIPs(ctx context.Context, candidates []string, round int) ([]model.Result, error)
+}
+
+type engineFactory func(config.TestConfig, func(engine.Progress)) speedEngine
 
 type RunStatus struct {
 	Running      bool               `json:"running"`
@@ -43,17 +51,21 @@ type RunStatus struct {
 }
 
 func NewRunner(cfg config.Config, st *store.Store, pub publisher.Publisher) *Runner {
-	r := &Runner{cfg: cfg, store: st, publisher: pub}
+	r := &Runner{cfg: cfg, store: st, publisher: pub, engineFactory: defaultEngineFactory}
 	if cycle, err := st.LastCycle(); err == nil && cycle != nil && len(cycle.Published) > 0 {
 		r.lastRun.Published = model.PublishedSet{
 			Domain:      cfg.Publish.Domain,
 			GeneratedAt: cycle.CreatedAt,
-			IPs:         filterPublishableSpeed(cycle.Published, cfg.Test.MinSpeedMB),
+			IPs:         cycle.Published,
 		}
 		r.lastRun.LastStarted = &cycle.StartedAt
 		r.lastRun.LastEnded = &cycle.CreatedAt
 	}
 	return r
+}
+
+func defaultEngineFactory(cfg config.TestConfig, progress func(engine.Progress)) speedEngine {
+	return engine.New(cfg).WithProgress(progress)
 }
 
 func (r *Runner) RunOnce(ctx context.Context) error {
@@ -66,7 +78,8 @@ func (r *Runner) RunOnce(ctx context.Context) error {
 	defer func() {
 		r.finishRun(runErr)
 	}()
-	log.Printf("starting speed-test cycle: rounds=%d target_unique=%d", r.cfg.Test.RoundsPerHour, r.cfg.Test.DesiredUniqueIPs)
+	log.Printf("starting speed-test cycle: rounds=%d target_unique=%d min_speed=%.1fMB/s max_delay=%dms", r.cfg.Test.RoundsPerHour, r.cfg.Test.DesiredUniqueIPs, r.cfg.Test.MinSpeedMB, r.cfg.Test.MaxDelayMS)
+	previous := r.publishedSnapshot()
 	selected := make(map[string]model.Result)
 	all := make([]model.Result, 0)
 	totalRounds := r.cfg.Test.RoundsPerHour + r.cfg.Test.MaxExtraRounds
@@ -74,47 +87,72 @@ func (r *Runner) RunOnce(ctx context.Context) error {
 		totalRounds = r.cfg.Test.RoundsPerHour
 	}
 
-	for round := 1; round <= totalRounds; round++ {
-		if round > r.cfg.Test.RoundsPerHour && len(selected) >= r.cfg.Test.DesiredUniqueIPs {
-			break
-		}
-		r.setProgress(round, len(selected), len(all), "Scanning candidate IPs")
-		results, err := engine.New(r.cfg.Test).WithProgress(func(progress engine.Progress) {
-			r.setEngineProgress(round, len(selected), len(all), progress)
-		}).Run(ctx, round)
+	if len(previous) > 0 {
+		poolIPs := resultIPs(previous)
+		r.setProgress(0, len(selected), len(all), fmt.Sprintf("Rechecking stable IP pool %d/%d", len(poolIPs), r.cfg.Test.DesiredUniqueIPs))
+		results, err := r.engineFactory(r.cfg.Test, func(progress engine.Progress) {
+			r.setEngineProgress(0, len(selected), len(all), progress)
+		}).RunIPs(ctx, poolIPs, 0)
 		if err != nil {
-			log.Printf("round %d failed: %v", round, err)
-			r.setProgress(round, len(selected), len(all), fmt.Sprintf("Round %d failed: %v", round, err))
-			continue
+			log.Printf("pool recheck failed: %v", err)
+			r.setProgress(0, len(selected), len(all), fmt.Sprintf("Pool recheck failed: %v", err))
+		} else {
+			results = filterQualified(results, r.cfg.Test)
+			all = append(all, results...)
+			added := addNewWinners(results, selected, r.cfg.Test.DesiredUniqueIPs)
+			dropped := len(poolIPs) - added
+			if dropped < 0 {
+				dropped = 0
+			}
+			r.setProgress(0, len(selected), len(all), fmt.Sprintf("Pool recheck kept %d/%d IPs, %d need replacement", added, len(poolIPs), dropped))
+			log.Printf("pool recheck kept=%d dropped=%d target=%d", added, dropped, r.cfg.Test.DesiredUniqueIPs)
 		}
-		if len(results) == 0 {
-			log.Printf("round %d produced no usable result", round)
-			r.setProgress(round, len(selected), len(all), fmt.Sprintf("Round %d produced no usable result", round))
-			continue
+	}
+
+	if len(selected) < r.cfg.Test.DesiredUniqueIPs {
+		for round := 1; round <= totalRounds; round++ {
+			if round > r.cfg.Test.RoundsPerHour && len(selected) >= r.cfg.Test.DesiredUniqueIPs {
+				break
+			}
+			needed := r.cfg.Test.DesiredUniqueIPs - len(selected)
+			r.setProgress(round, len(selected), len(all), fmt.Sprintf("Scanning public IP library, need %d replacements", needed))
+			results, err := r.engineFactory(r.cfg.Test, func(progress engine.Progress) {
+				r.setEngineProgress(round, len(selected), len(all), progress)
+			}).Run(ctx, round)
+			if err != nil {
+				log.Printf("round %d failed: %v", round, err)
+				r.setProgress(round, len(selected), len(all), fmt.Sprintf("Round %d failed: %v", round, err))
+				continue
+			}
+			if len(results) == 0 {
+				log.Printf("round %d produced no usable result", round)
+				r.setProgress(round, len(selected), len(all), fmt.Sprintf("Round %d produced no usable result", round))
+				continue
+			}
+			zeroSpeed := countZeroSpeed(results)
+			if zeroSpeed > 0 {
+				r.addZeroSpeed(zeroSpeed)
+			}
+			results = filterQualified(results, r.cfg.Test)
+			all = append(all, results...)
+			if len(results) == 0 {
+				log.Printf("round %d produced no qualified result", round)
+				r.setProgress(round, len(selected), len(all), fmt.Sprintf("Round %d produced no IP above %.1f MB/s and below %d ms", round, r.cfg.Test.MinSpeedMB, r.cfg.Test.MaxDelayMS))
+				continue
+			}
+			added := addNewWinners(results, selected, r.cfg.Test.DesiredUniqueIPs)
+			if added == 0 {
+				log.Printf("round %d results duplicated, no new unique IP found in candidate list", round)
+				r.setProgress(round, len(selected), len(all), fmt.Sprintf("Round %d was duplicated, continuing", round))
+				continue
+			}
+			stage := fmt.Sprintf("Selected %d/%d qualified IPs", len(selected), r.cfg.Test.DesiredUniqueIPs)
+			if zeroSpeed > 0 {
+				stage = fmt.Sprintf("%s; %d candidates had 0 MB/s download", stage, zeroSpeed)
+			}
+			r.setProgress(round, len(selected), len(all), stage)
+			log.Printf("round %d added %d IPs, selected=%d/%d", round, added, len(selected), r.cfg.Test.DesiredUniqueIPs)
 		}
-		zeroSpeed := countZeroSpeed(results)
-		if zeroSpeed > 0 {
-			r.addZeroSpeed(zeroSpeed)
-		}
-		results = filterPublishableSpeed(results, r.cfg.Test.MinSpeedMB)
-		all = append(all, results...)
-		if len(results) == 0 {
-			log.Printf("round %d produced no publishable result", round)
-			r.setProgress(round, len(selected), len(all), fmt.Sprintf("Round %d produced no IP above %.1f MB/s", round, r.cfg.Test.MinSpeedMB))
-			continue
-		}
-		added := addNewWinners(results, selected, r.cfg.Test.DesiredUniqueIPs)
-		if added == 0 {
-			log.Printf("round %d results duplicated, no new unique IP found in candidate list", round)
-			r.setProgress(round, len(selected), len(all), fmt.Sprintf("Round %d was duplicated, continuing", round))
-			continue
-		}
-		stage := fmt.Sprintf("Selected %d/%d IPs above %.1f MB/s", len(selected), r.cfg.Test.DesiredUniqueIPs, r.cfg.Test.MinSpeedMB)
-		if zeroSpeed > 0 {
-			stage = fmt.Sprintf("%s; %d candidates had 0 MB/s download", stage, zeroSpeed)
-		}
-		r.setProgress(round, len(selected), len(all), stage)
-		log.Printf("round %d added %d IPs, selected=%d/%d", round, added, len(selected), r.cfg.Test.DesiredUniqueIPs)
 	}
 
 	final := make([]model.Result, 0, len(selected))
@@ -130,8 +168,8 @@ func (r *Runner) RunOnce(ctx context.Context) error {
 	if len(final) > r.cfg.Test.DesiredUniqueIPs {
 		final = final[:r.cfg.Test.DesiredUniqueIPs]
 	}
-	if len(final) == 0 {
-		runErr = fmt.Errorf("no publishable IPs found")
+	if len(final) < r.cfg.Test.DesiredUniqueIPs {
+		runErr = fmt.Errorf("qualified IP pool incomplete: %d/%d IPs meet speed >= %.1f MB/s and delay <= %d ms; keeping previous published pool", len(final), r.cfg.Test.DesiredUniqueIPs, r.cfg.Test.MinSpeedMB, r.cfg.Test.MaxDelayMS)
 		return runErr
 	}
 	set := model.PublishedSet{
@@ -161,7 +199,6 @@ func (r *Runner) Status() RunStatus {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	status := r.lastRun
-	status.Published.IPs = filterPublishableSpeed(status.Published.IPs, r.cfg.Test.MinSpeedMB)
 	status.Running = r.running
 	status.Rounds = r.cfg.Test.RoundsPerHour
 	status.Target = r.cfg.Test.DesiredUniqueIPs
@@ -176,6 +213,14 @@ func (r *Runner) Config() config.Config {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.cfg
+}
+
+func (r *Runner) publishedSnapshot() []model.Result {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]model.Result, len(r.lastRun.Published.IPs))
+	copy(out, r.lastRun.Published.IPs)
+	return out
 }
 
 func (r *Runner) ArchiveStats() (store.Stats, error) {
@@ -268,14 +313,46 @@ func countZeroSpeed(results []model.Result) int {
 	return count
 }
 
-func filterPublishableSpeed(results []model.Result, minSpeedMB float64) []model.Result {
+func filterQualified(results []model.Result, cfg config.TestConfig) []model.Result {
 	filtered := make([]model.Result, 0, len(results))
 	for _, result := range results {
-		if result.DownloadMBps > 0 && result.DownloadMBps >= minSpeedMB {
+		if isQualified(result, cfg) {
 			filtered = append(filtered, result)
 		}
 	}
 	return filtered
+}
+
+func isQualified(result model.Result, cfg config.TestConfig) bool {
+	if result.DownloadMBps <= 0 || result.DownloadMBps < cfg.MinSpeedMB {
+		return false
+	}
+	if cfg.MaxDelayMS > 0 && result.DelayMS > float64(cfg.MaxDelayMS) {
+		return false
+	}
+	if cfg.MinDelayMS > 0 && result.DelayMS < float64(cfg.MinDelayMS) {
+		return false
+	}
+	if cfg.MaxLossRate >= 0 && result.LossRate > cfg.MaxLossRate {
+		return false
+	}
+	return true
+}
+
+func resultIPs(results []model.Result) []string {
+	seen := make(map[string]struct{})
+	ips := make([]string, 0, len(results))
+	for _, result := range results {
+		if result.IP == "" {
+			continue
+		}
+		if _, ok := seen[result.IP]; ok {
+			continue
+		}
+		seen[result.IP] = struct{}{}
+		ips = append(ips, result.IP)
+	}
+	return ips
 }
 
 func (r *Runner) finishRun(err error) {
