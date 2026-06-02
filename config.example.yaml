@@ -18,14 +18,15 @@ test:
   all_ip: false
   port: 443
   url: "https://speed.cloudflare.com/__down?bytes=50000000"
-  delay_threads: 200
-  ping_times: 4
+  delay_threads: 300
+  ping_times: 3
   download_time_seconds: 10
-  download_candidates: 10
+  download_candidates: 20
+  download_threads: 1
   min_delay_ms: 0
   max_delay_ms: 9999
   max_loss_rate: 1.0
-  min_speed_mb: 0.0
+  min_speed_mb: 5.0
   httping: false
   httping_status_code: 0
   cfcolo: ""

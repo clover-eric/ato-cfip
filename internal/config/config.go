@@ -45,6 +45,7 @@ type TestConfig struct {
 	PingTimes           int     `yaml:"ping_times"`
 	DownloadTimeSeconds int     `yaml:"download_time_seconds"`
 	DownloadCandidates  int     `yaml:"download_candidates"`
+	DownloadThreads     int     `yaml:"download_threads"`
 	MinDelayMS          int     `yaml:"min_delay_ms"`
 	MaxDelayMS          int     `yaml:"max_delay_ms"`
 	MaxLossRate         float64 `yaml:"max_loss_rate"`
@@ -142,12 +143,14 @@ func Defaults() Config {
 			IPFile:              "ip.txt",
 			Port:                443,
 			URL:                 "https://speed.cloudflare.com/__down?bytes=50000000",
-			DelayThreads:        500,
-			PingTimes:           2,
-			DownloadTimeSeconds: 5,
-			DownloadCandidates:  80,
+			DelayThreads:        300,
+			PingTimes:           3,
+			DownloadTimeSeconds: 10,
+			DownloadCandidates:  20,
+			DownloadThreads:     1,
 			MaxDelayMS:          9999,
 			MaxLossRate:         1.0,
+			MinSpeedMB:          5,
 		},
 		Publish: PublishConfig{
 			Mode:       "file",
@@ -187,6 +190,7 @@ func (c *Config) ApplyEnv() {
 	envInt("ATO_MAX_EXTRA_ROUNDS", &c.Test.MaxExtraRounds)
 	envInt("ATO_DOWNLOAD_SECONDS", &c.Test.DownloadTimeSeconds)
 	envInt("ATO_DOWNLOAD_CANDIDATES", &c.Test.DownloadCandidates)
+	envInt("ATO_DOWNLOAD_THREADS", &c.Test.DownloadThreads)
 	envInt("ATO_DELAY_THREADS", &c.Test.DelayThreads)
 	envInt("ATO_PING_TIMES", &c.Test.PingTimes)
 	envInt("ATO_PORT", &c.Test.Port)
@@ -205,6 +209,9 @@ func (c Config) Validate() error {
 	}
 	if c.Test.DelayThreads <= 0 {
 		return errors.New("test.delay_threads must be greater than 0")
+	}
+	if c.Test.DownloadThreads <= 0 {
+		return errors.New("test.download_threads must be greater than 0")
 	}
 	if c.Test.Port <= 0 || c.Test.Port > 65535 {
 		return errors.New("test.port must be between 1 and 65535")

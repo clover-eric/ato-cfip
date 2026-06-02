@@ -13,14 +13,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/VividCortex/ewma"
 	"github.com/clover-eric/ato-cfip/internal/config"
 	"github.com/clover-eric/ato-cfip/internal/model"
 )
 
 const (
 	tcpConnectTimeout = time.Second
-	bufferSize        = 1024
+	bufferSize        = 32 * 1024
 )
 
 var (
@@ -73,6 +72,9 @@ func normalizeConfig(cfg config.TestConfig) config.TestConfig {
 	}
 	if cfg.DownloadCandidates <= 0 {
 		cfg.DownloadCandidates = 10
+	}
+	if cfg.DownloadThreads <= 0 {
+		cfg.DownloadThreads = 1
 	}
 	if cfg.Port <= 0 || cfg.Port > 65535 {
 		cfg.Port = 443
@@ -268,16 +270,16 @@ func filterAndSortPing(pings []pingData, cfg config.TestConfig) []pingData {
 }
 
 func (e *Engine) download(ctx context.Context, pings []pingData, round int) []model.Result {
-	testNum := e.cfg.DownloadCandidates
-	if testNum > len(pings) || e.cfg.MinSpeedMB > 0 {
-		testNum = len(pings)
+	testNum := minInt(e.cfg.DownloadCandidates, len(pings))
+	if testNum <= 0 {
+		return nil
 	}
 	type downloadResult struct {
 		result *model.Result
 	}
 	results := make([]model.Result, 0, testNum)
 	out := make(chan downloadResult, testNum)
-	control := make(chan struct{}, minInt(8, testNum))
+	control := make(chan struct{}, minInt(e.cfg.DownloadThreads, testNum))
 	var wg sync.WaitGroup
 	var doneMu sync.Mutex
 	done := 0
@@ -369,47 +371,26 @@ func (e *Engine) downloadHandler(ctx context.Context, ip *net.IPAddr) (float64, 
 	timeEnd := timeStart.Add(timeout)
 	contentLength := resp.ContentLength
 	buffer := make([]byte, bufferSize)
-
-	var (
-		contentRead     int64
-		timeSlice       = timeout / 100
-		timeCounter     = 1
-		lastContentRead int64
-	)
-	nextTime := timeStart.Add(timeSlice * time.Duration(timeCounter))
-	avg := ewma.NewMovingAverage()
+	var contentRead int64
 
 	for contentLength != contentRead {
 		currentTime := time.Now()
-		if currentTime.After(nextTime) {
-			timeCounter++
-			nextTime = timeStart.Add(timeSlice * time.Duration(timeCounter))
-			avg.Add(float64(contentRead - lastContentRead))
-			lastContentRead = contentRead
-		}
 		if currentTime.After(timeEnd) {
 			break
 		}
 		n, err := resp.Body.Read(buffer)
-		if err != nil {
-			if err != io.EOF || contentLength == -1 {
-				break
-			}
-			lastSlice := timeStart.Add(timeSlice * time.Duration(timeCounter-1))
-			avg.Add(float64(contentRead-lastContentRead) / (float64(currentTime.Sub(lastSlice)) / float64(timeSlice)))
+		if n > 0 {
+			contentRead += int64(n)
 		}
-		contentRead += int64(n)
+		if err != nil {
+			break
+		}
 	}
 	elapsed := time.Since(timeStart).Seconds()
-	if elapsed <= 0 {
+	if elapsed <= 0 || contentRead <= 0 {
 		return 0, colo
 	}
-	speed := avg.Value() / (timeout.Seconds() / 120)
-	fallback := float64(contentRead) / elapsed
-	if speed <= 0 || fallback > speed*2 {
-		speed = fallback
-	}
-	return speed, colo
+	return float64(contentRead) / elapsed, colo
 }
 
 func getDialContext(ip *net.IPAddr, port int) func(ctx context.Context, network, address string) (net.Conn, error) {

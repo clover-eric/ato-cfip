@@ -27,8 +27,6 @@ func InitWizard(path string) error {
 		cfg.Publish.Cloudflare.ZoneID = ask(reader, "Cloudflare Zone ID", cfg.Publish.Cloudflare.ZoneID)
 		cfg.Publish.Cloudflare.Proxied = false
 	}
-	cfg.Test.MinSpeedMB = 0.01
-
 	b, err := yaml.Marshal(cfg)
 	if err != nil {
 		return err

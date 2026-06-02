@@ -81,7 +81,13 @@ func (p CloudflarePublisher) Publish(ctx context.Context, set model.PublishedSet
 	}
 	for _, record := range records {
 		key := record.Type + "|" + record.Content
-		if _, ok := desired[key]; ok {
+		if wanted, ok := desired[key]; ok {
+			wanted.ID = record.ID
+			if needsRecordUpdate(record, wanted) {
+				if err := p.updateRecord(ctx, record.ID, wanted); err != nil {
+					return err
+				}
+			}
 			delete(desired, key)
 			continue
 		}
@@ -95,6 +101,25 @@ func (p CloudflarePublisher) Publish(ctx context.Context, set model.PublishedSet
 		}
 	}
 	return nil
+}
+
+func needsRecordUpdate(existing, desired cloudflareRecord) bool {
+	if !strings.EqualFold(existing.Type, desired.Type) {
+		return true
+	}
+	if !strings.EqualFold(existing.Name, desired.Name) {
+		return true
+	}
+	if existing.Content != desired.Content {
+		return true
+	}
+	if existing.Proxied != desired.Proxied {
+		return true
+	}
+	if !desired.Proxied && existing.TTL != desired.TTL {
+		return true
+	}
+	return false
 }
 
 func FindZone(ctx context.Context, apiToken, domain string) (CloudflareZone, error) {
@@ -186,6 +211,24 @@ func (p CloudflarePublisher) createRecord(ctx context.Context, record cloudflare
 	}
 	if !out.Success {
 		return fmt.Errorf("cloudflare create record failed: %v", out.Errors)
+	}
+	return nil
+}
+
+func (p CloudflarePublisher) updateRecord(ctx context.Context, id string, record cloudflareRecord) error {
+	record.ID = ""
+	endpoint := fmt.Sprintf("https://api.cloudflare.com/client/v4/zones/%s/dns_records/%s", p.ZoneID, id)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, endpoint, nil)
+	if err != nil {
+		return err
+	}
+	p.authorize(req)
+	var out cloudflareMutationResponse
+	if err := doJSON(req, record, &out); err != nil {
+		return err
+	}
+	if !out.Success {
+		return fmt.Errorf("cloudflare update record failed: %v", out.Errors)
 	}
 	return nil
 }

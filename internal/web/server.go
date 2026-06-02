@@ -50,7 +50,7 @@ func New(cfg config.Config, runner *scheduler.Runner) *Server {
 		runner:    runner,
 		publicTpl: template.Must(template.New("public").Parse(publicHTML)),
 		setupTpl:  template.Must(template.New("setup").Parse(setupHTML)),
-		adminTpl:  template.Must(template.New("admin").Parse(adminHTML)),
+		adminTpl:  template.Must(template.New("admin").Parse(polishAdminHTML(adminHTML))),
 		runtime:   loadRuntime(),
 	}
 	if s.runtime.Domain != "" {
@@ -89,6 +89,30 @@ func New(cfg config.Config, runner *scheduler.Runner) *Server {
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	return s
+}
+
+func polishAdminHTML(html string) string {
+	html = strings.ReplaceAll(
+		html,
+		`['\u6bcf\u5c0f\u65f6\u8f6e\u6b21',c.rounds_per_hour],['\u4e0b\u8f7d\u5730\u5740',c.download_url],['\u76d1\u542c\u5730\u5740',c.web_listen]]`,
+		`['\u6bcf\u5c0f\u65f6\u8f6e\u6b21',c.rounds_per_hour],['\u6700\u4f4e\u53d1\u5e03\u901f\u5ea6',Number(c.min_speed_mb||0).toFixed(1)+' MB/s'],['\u4e0b\u8f7d\u5019\u9009\u6570',c.download_candidates],['\u4e0b\u8f7d\u7ebf\u7a0b',c.download_threads],['\u4e0b\u8f7d\u5730\u5740',c.download_url],['\u76d1\u542c\u5730\u5740',c.web_listen]]`,
+	)
+	html = strings.ReplaceAll(
+		html,
+		`\u6682\u65e0\u53d1\u5e03\u7ed3\u679c\uff0c\u6216\u672c\u8f6e\u672a\u6d4b\u5230\u6709\u6548\u4e0b\u8f7d\u901f\u5ea6`,
+		`\u6682\u65e0\u53d1\u5e03\u7ed3\u679c\uff0c\u6216\u672c\u8f6e\u672a\u6d4b\u5230\u8fbe\u6807\u901f\u5ea6\u7684 IP`,
+	)
+	html = strings.ReplaceAll(
+		html,
+		`.replace(/Selected (\d+)\/(\d+) IPs/,'\u5df2\u9009\u51fa $1/$2 \u4e2a IP')`,
+		`.replace(/Selected (\d+)\/(\d+) IPs above ([0-9.]+) MB\/s/,'\u5df2\u9009\u51fa $1/$2 \u4e2a\u8fbe\u6807 IP\uff08\u2265 $3 MB/s\uff09').replace(/Selected (\d+)\/(\d+) IPs/,'\u5df2\u9009\u51fa $1/$2 \u4e2a IP')`,
+	)
+	html = strings.ReplaceAll(
+		html,
+		`.replace(/Round (\d+) produced no positive-speed result/,'\u7b2c $1 \u8f6e\u672a\u6d4b\u5230\u6709\u6548\u901f\u5ea6')`,
+		`.replace(/Round (\d+) produced no IP above ([0-9.]+) MB\/s/,'\u7b2c $1 \u8f6e\u6ca1\u6709\u8fbe\u5230 $2 MB/s \u7684 IP').replace(/Round (\d+) produced no positive-speed result/,'\u7b2c $1 \u8f6e\u672a\u6d4b\u5230\u6709\u6548\u901f\u5ea6')`,
+	)
+	return html
 }
 
 func IsInitialized() bool {
@@ -199,16 +223,19 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"status":  status,
 		"archive": stats,
 		"config": map[string]any{
-			"domain":             cfg.Publish.Domain,
-			"publish_mode":       cfg.Publish.Mode,
-			"schedule":           cfg.Server.Schedule,
-			"timezone":           cfg.Server.Timezone,
-			"rounds_per_hour":    cfg.Test.RoundsPerHour,
-			"desired_unique_ips": cfg.Test.DesiredUniqueIPs,
-			"download_time":      cfg.Test.DownloadTimeSeconds,
-			"download_url":       cfg.Test.URL,
-			"web_listen":         cfg.Web.Listen,
-			"domain_configured":  isConfiguredDomain(cfg.Publish.Domain),
+			"domain":              cfg.Publish.Domain,
+			"publish_mode":        cfg.Publish.Mode,
+			"schedule":            cfg.Server.Schedule,
+			"timezone":            cfg.Server.Timezone,
+			"rounds_per_hour":     cfg.Test.RoundsPerHour,
+			"desired_unique_ips":  cfg.Test.DesiredUniqueIPs,
+			"download_time":       cfg.Test.DownloadTimeSeconds,
+			"download_candidates": cfg.Test.DownloadCandidates,
+			"download_threads":    cfg.Test.DownloadThreads,
+			"min_speed_mb":        cfg.Test.MinSpeedMB,
+			"download_url":        cfg.Test.URL,
+			"web_listen":          cfg.Web.Listen,
+			"domain_configured":   isConfiguredDomain(cfg.Publish.Domain),
 		},
 	})
 }
@@ -457,7 +484,7 @@ func (s *Server) handleCloudflareBind(w http.ResponseWriter, r *http.Request) {
 	cfg.Domain = domain
 	cfg.Cloudflare.APIToken = token
 	cfg.Cloudflare.ZoneID = zone.ID
-	cfg.Cloudflare.Proxied = req.Proxied
+	cfg.Cloudflare.Proxied = false
 	pub, err := publisher.New(cfg)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -469,7 +496,7 @@ func (s *Server) handleCloudflareBind(w http.ResponseWriter, r *http.Request) {
 		APIToken: token,
 		ZoneID:   zone.ID,
 		ZoneName: zone.Name,
-		Proxied:  req.Proxied,
+		Proxied:  false,
 	}
 	if err := saveRuntime(s.runtime); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
