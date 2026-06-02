@@ -62,7 +62,7 @@ const dashboardHTML = `<!doctype html>
       min-height: 40px;
     }
     button.primary { background: var(--blue); border-color: var(--blue); color: white; }
-    button:disabled { opacity: .6; cursor: wait; }
+    button.is-busy { opacity: .75; }
     .hero {
       background: linear-gradient(135deg, #ffffff 0%, #f2f7ff 55%, #e9fbff 100%);
       border: 1px solid var(--line);
@@ -215,9 +215,20 @@ const dashboardHTML = `<!doctype html>
     const fmt = new Intl.DateTimeFormat('zh-CN', { dateStyle: 'short', timeStyle: 'medium' });
     const runBtn = document.getElementById('runBtn');
     runBtn.addEventListener('click', async () => {
-      runBtn.disabled = true;
-      await fetch('/api/run', { method: 'POST' });
-      setTimeout(refresh, 800);
+      if (runBtn.dataset.running === 'true') {
+        return;
+      }
+      runBtn.dataset.running = 'true';
+      runBtn.classList.add('is-busy');
+      runBtn.textContent = '启动中';
+      try {
+        await fetch('/api/run', { method: 'POST' });
+      } finally {
+        setTimeout(() => {
+          runBtn.dataset.running = 'false';
+          refresh();
+        }, 800);
+      }
     });
 
     async function refresh() {
@@ -237,14 +248,17 @@ const dashboardHTML = `<!doctype html>
       if (st.running) {
         dot.classList.add('running');
         txt.textContent = '正在测速';
-        runBtn.disabled = true;
+        runBtn.classList.add('is-busy');
+        runBtn.textContent = '测速中';
       } else if (st.last_error) {
         dot.classList.add('error');
         txt.textContent = st.last_error;
-        runBtn.disabled = false;
+        runBtn.classList.remove('is-busy');
+        runBtn.textContent = '立即测速';
       } else {
         txt.textContent = ips.length ? '运行正常' : '等待首次结果';
-        runBtn.disabled = false;
+        runBtn.classList.remove('is-busy');
+        runBtn.textContent = '立即测速';
       }
       renderTable(ips);
       renderConfig(cfg);
