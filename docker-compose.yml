@@ -3,6 +3,8 @@ services:
     image: ghcr.io/clover-eric/ato-cfip:latest
     container_name: ato-cfip
     restart: unless-stopped
+    environment:
+      ATO_CFIP_GITHUB_ACCELERATOR: "https://github.i3.pub"
     ports:
       - "8080:8080"
     volumes:

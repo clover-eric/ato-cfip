@@ -93,11 +93,12 @@ func Load(path string) (Config, error) {
 }
 
 type RuntimeConfig struct {
-	Initialized  bool   `json:"initialized"`
-	AdminUser    string `json:"admin_user"`
-	PasswordHash string `json:"password_hash"`
-	PanelURL     string `json:"panel_url"`
-	Domain       string `json:"domain"`
+	Initialized   bool   `json:"initialized"`
+	AdminUser     string `json:"admin_user"`
+	PasswordHash  string `json:"password_hash"`
+	SessionSecret string `json:"session_secret"`
+	PanelURL      string `json:"panel_url"`
+	Domain        string `json:"domain"`
 }
 
 func (c *Config) ApplyRuntime() {

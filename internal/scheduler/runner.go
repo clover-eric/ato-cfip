@@ -38,6 +38,8 @@ type RunStatus struct {
 	Stage        string             `json:"stage"`
 	ElapsedSec   int64              `json:"elapsed_sec"`
 	ZeroSpeed    int                `json:"zero_speed"`
+	Progress     engine.Progress    `json:"progress"`
+	ArchiveCount int                `json:"archive_count"`
 }
 
 func NewRunner(cfg config.Config, st *store.Store, pub publisher.Publisher) *Runner {
@@ -46,7 +48,7 @@ func NewRunner(cfg config.Config, st *store.Store, pub publisher.Publisher) *Run
 		r.lastRun.Published = model.PublishedSet{
 			Domain:      cfg.Publish.Domain,
 			GeneratedAt: cycle.CreatedAt,
-			IPs:         cycle.Published,
+			IPs:         filterPositiveSpeed(cycle.Published),
 		}
 		r.lastRun.LastStarted = &cycle.StartedAt
 		r.lastRun.LastEnded = &cycle.CreatedAt
@@ -77,7 +79,9 @@ func (r *Runner) RunOnce(ctx context.Context) error {
 			break
 		}
 		r.setProgress(round, len(selected), len(all), "Scanning candidate IPs")
-		results, err := engine.New(r.cfg.Test).Run(ctx, round)
+		results, err := engine.New(r.cfg.Test).WithProgress(func(progress engine.Progress) {
+			r.setEngineProgress(round, len(selected), len(all), progress)
+		}).Run(ctx, round)
 		if err != nil {
 			log.Printf("round %d failed: %v", round, err)
 			r.setProgress(round, len(selected), len(all), fmt.Sprintf("Round %d failed: %v", round, err))
@@ -92,7 +96,13 @@ func (r *Runner) RunOnce(ctx context.Context) error {
 		if zeroSpeed > 0 {
 			r.addZeroSpeed(zeroSpeed)
 		}
+		results = filterPositiveSpeed(results)
 		all = append(all, results...)
+		if len(results) == 0 {
+			log.Printf("round %d produced no positive-speed result", round)
+			r.setProgress(round, len(selected), len(all), fmt.Sprintf("Round %d produced no positive-speed result", round))
+			continue
+		}
 		winner := firstNewWinner(results, selected)
 		if winner == nil {
 			log.Printf("round %d winner duplicated, no new unique IP found in candidate list", round)
@@ -152,12 +162,14 @@ func (r *Runner) Status() RunStatus {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	status := r.lastRun
+	status.Published.IPs = filterPositiveSpeed(status.Published.IPs)
 	status.Running = r.running
 	status.Rounds = r.cfg.Test.RoundsPerHour
 	status.Target = r.cfg.Test.DesiredUniqueIPs
 	if status.Running && status.LastStarted != nil {
 		status.ElapsedSec = int64(time.Since(*status.LastStarted).Seconds())
 	}
+	status.ArchiveCount = len(status.Published.IPs)
 	return status
 }
 
@@ -165,6 +177,10 @@ func (r *Runner) Config() config.Config {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.cfg
+}
+
+func (r *Runner) ArchiveStats() (store.Stats, error) {
+	return r.store.Stats()
 }
 
 func (r *Runner) SetDomain(domain string) {
@@ -195,6 +211,7 @@ func (r *Runner) setStarted(t time.Time) {
 	r.lastRun.Candidates = 0
 	r.lastRun.Stage = "Preparing"
 	r.lastRun.ZeroSpeed = 0
+	r.lastRun.Progress = engine.Progress{}
 }
 
 func (r *Runner) setProgress(round, selected, candidates int, stage string) {
@@ -204,6 +221,21 @@ func (r *Runner) setProgress(round, selected, candidates int, stage string) {
 	r.lastRun.Selected = selected
 	r.lastRun.Candidates = candidates
 	r.lastRun.Stage = stage
+}
+
+func (r *Runner) setEngineProgress(round, selected, candidates int, progress engine.Progress) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.lastRun.CurrentRound = round
+	r.lastRun.Selected = selected
+	r.lastRun.Candidates = candidates
+	r.lastRun.Progress = progress
+	switch progress.Phase {
+	case "delay":
+		r.lastRun.Stage = fmt.Sprintf("Delay test %d/%d, available %d", progress.DelayDone, progress.DelayTotal, progress.Available)
+	case "download":
+		r.lastRun.Stage = fmt.Sprintf("Download test %d/%d", progress.DownloadDone, progress.DownloadTotal)
+	}
 }
 
 func (r *Runner) addZeroSpeed(count int) {
@@ -227,6 +259,16 @@ func countZeroSpeed(results []model.Result) int {
 		}
 	}
 	return count
+}
+
+func filterPositiveSpeed(results []model.Result) []model.Result {
+	filtered := make([]model.Result, 0, len(results))
+	for _, result := range results {
+		if result.DownloadMBps > 0 {
+			filtered = append(filtered, result)
+		}
+	}
+	return filtered
 }
 
 func (r *Runner) finishRun(err error) {

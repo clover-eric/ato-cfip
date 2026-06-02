@@ -1,6 +1,8 @@
 param(
     [string]$InstallDir = "$HOME\ato-cfip",
-    [string]$RepoUrl = "https://github.com/clover-eric/ato-cfip.git",
+    [string]$GitHubAccelerator = "https://github.i3.pub",
+    [string]$UpstreamRepoUrl = "https://github.com/clover-eric/ato-cfip.git",
+    [string]$RepoUrl = "",
     [int]$WebPort = 8080
 )
 
@@ -14,6 +16,10 @@ function Require-Command($Name, $Hint) {
 
 Write-Host "==> ATO-CFIP one-click installer"
 Write-Host "==> Install dir: $InstallDir"
+
+if ([string]::IsNullOrWhiteSpace($RepoUrl)) {
+    $RepoUrl = "$GitHubAccelerator/$UpstreamRepoUrl"
+}
 
 Require-Command git "Install Git for Windows first."
 Require-Command docker "Install Docker Desktop or NAS Container Manager first."

@@ -23,6 +23,12 @@ type Cycle struct {
 	Published []model.Result `json:"published"`
 }
 
+type Stats struct {
+	Cycles       int `json:"cycles"`
+	TestedIPs    int `json:"tested_ips"`
+	PublishedIPs int `json:"published_ips"`
+}
+
 func Open(path string) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, err
@@ -143,4 +149,28 @@ func (s *Store) LastCycle() (*Cycle, error) {
 		return nil, err
 	}
 	return &cycle, nil
+}
+
+func (s *Store) Stats() (Stats, error) {
+	f, err := os.Open(s.path)
+	if err != nil {
+		return Stats{}, err
+	}
+	defer f.Close()
+	var stats Stats
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+		var cycle Cycle
+		if err := json.Unmarshal(line, &cycle); err != nil {
+			continue
+		}
+		stats.Cycles++
+		stats.TestedIPs += len(cycle.All)
+		stats.PublishedIPs += len(cycle.Published)
+	}
+	return stats, scanner.Err()
 }

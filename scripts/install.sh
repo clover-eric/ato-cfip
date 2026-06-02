@@ -1,7 +1,9 @@
 #!/usr/bin/env sh
 set -eu
 
-REPO_URL="${ATO_CFIP_REPO:-https://github.com/clover-eric/ato-cfip.git}"
+GITHUB_ACCELERATOR="${ATO_CFIP_GITHUB_ACCELERATOR:-https://github.i3.pub}"
+UPSTREAM_REPO_URL="${ATO_CFIP_UPSTREAM_REPO:-https://github.com/clover-eric/ato-cfip.git}"
+REPO_URL="${ATO_CFIP_REPO:-$GITHUB_ACCELERATOR/$UPSTREAM_REPO_URL}"
 INSTALL_DIR="${ATO_CFIP_DIR:-$HOME/ato-cfip}"
 WEB_PORT="${CFST_WEB_PORT:-8080}"
 

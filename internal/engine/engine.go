@@ -30,7 +30,21 @@ var (
 )
 
 type Engine struct {
-	cfg config.TestConfig
+	cfg        config.TestConfig
+	onProgress func(Progress)
+}
+
+type Progress struct {
+	Phase         string  `json:"phase"`
+	DelayDone     int     `json:"delay_done"`
+	DelayTotal    int     `json:"delay_total"`
+	Available     int     `json:"available"`
+	DownloadDone  int     `json:"download_done"`
+	DownloadTotal int     `json:"download_total"`
+	CurrentIP     string  `json:"current_ip,omitempty"`
+	LastIP        string  `json:"last_ip,omitempty"`
+	LastSpeedMBps float64 `json:"last_speed_mbps,omitempty"`
+	UsableResults int     `json:"usable_results"`
 }
 
 type pingData struct {
@@ -43,6 +57,11 @@ type pingData struct {
 
 func New(cfg config.TestConfig) *Engine {
 	return &Engine{cfg: normalizeConfig(cfg)}
+}
+
+func (e *Engine) WithProgress(fn func(Progress)) *Engine {
+	e.onProgress = fn
+	return e
 }
 
 func normalizeConfig(cfg config.TestConfig) config.TestConfig {
@@ -77,11 +96,13 @@ func (e *Engine) Run(ctx context.Context, round int) ([]model.Result, error) {
 		return nil, fmt.Errorf("no candidate IPs loaded")
 	}
 
+	e.emit(Progress{Phase: "delay", DelayTotal: len(ips)})
 	pings := e.ping(ctx, ips)
 	pings = filterAndSortPing(pings, e.cfg)
 	if len(pings) == 0 {
 		return nil, nil
 	}
+	e.emit(Progress{Phase: "download", DelayDone: len(ips), DelayTotal: len(ips), Available: len(pings), DownloadTotal: minInt(e.cfg.DownloadCandidates, len(pings))})
 	results := e.download(ctx, pings, round)
 	sort.Slice(results, func(i, j int) bool {
 		if results[i].DownloadSpeed != results[j].DownloadSpeed {
@@ -97,6 +118,9 @@ func (e *Engine) ping(ctx context.Context, ips []*net.IPAddr) []pingData {
 	var mu sync.Mutex
 	control := make(chan struct{}, e.cfg.DelayThreads)
 	out := make([]pingData, 0)
+	total := len(ips)
+	done := 0
+	available := 0
 
 	for _, ip := range ips {
 		select {
@@ -110,11 +134,15 @@ func (e *Engine) ping(ctx context.Context, ips []*net.IPAddr) []pingData {
 			defer wg.Done()
 			defer func() { <-control }()
 			data := e.checkConnection(ctx, ip)
-			if data.received == 0 {
-				return
-			}
 			mu.Lock()
-			out = append(out, data)
+			done++
+			if data.received > 0 {
+				available++
+				out = append(out, data)
+			}
+			if done == total || done%25 == 0 {
+				e.emit(Progress{Phase: "delay", DelayDone: done, DelayTotal: total, Available: available})
+			}
 			mu.Unlock()
 		}(ip)
 	}
@@ -251,19 +279,33 @@ func (e *Engine) download(ctx context.Context, pings []pingData, round int) []mo
 			return results
 		default:
 		}
+		e.emit(Progress{Phase: "download", DelayDone: len(pings), DelayTotal: len(pings), Available: len(pings), DownloadDone: i, DownloadTotal: testNum, CurrentIP: pings[i].ip.String(), UsableResults: len(results)})
 		speed, colo := e.downloadHandler(ctx, pings[i].ip)
-		if speed < e.cfg.MinSpeedMB*1024*1024 {
-			continue
-		}
 		if pings[i].colo != "" {
 			colo = pings[i].colo
 		}
-		results = append(results, toResult(pings[i], speed, colo, round))
+		if speed > 0 && speed >= e.cfg.MinSpeedMB*1024*1024 {
+			results = append(results, toResult(pings[i], speed, colo, round))
+		}
 		if e.cfg.MinSpeedMB > 0 && len(results) >= e.cfg.DownloadCandidates {
 			break
 		}
+		e.emit(Progress{Phase: "download", DelayDone: len(pings), DelayTotal: len(pings), Available: len(pings), DownloadDone: i + 1, DownloadTotal: testNum, LastIP: pings[i].ip.String(), LastSpeedMBps: speed / 1024 / 1024, UsableResults: len(results)})
 	}
 	return results
+}
+
+func (e *Engine) emit(progress Progress) {
+	if e.onProgress != nil {
+		e.onProgress(progress)
+	}
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func (e *Engine) downloadHandler(ctx context.Context, ip *net.IPAddr) (float64, string) {
