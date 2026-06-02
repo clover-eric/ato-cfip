@@ -13,12 +13,15 @@ func InitWizard(path string) error {
 	reader := bufio.NewReader(os.Stdin)
 	cfg := Defaults()
 
-	fmt.Println("cfst-daemon 初始化向导")
+	fmt.Println("ato-cfip 初始化向导")
 	fmt.Println("留空会使用括号中的默认值。")
 
-	cfg.Publish.Domain = ask(reader, "优选 IP 域名", cfg.Publish.Domain)
+	cfg.Publish.Domain = ask(reader, "面板/优选域名", cfg.Publish.Domain)
 	cfg.Web.Title = ask(reader, "Web 页面标题", cfg.Web.Title)
 	cfg.Web.Listen = ask(reader, "Web 监听地址", cfg.Web.Listen)
+	cfg.Publish.OutputFile = ask(reader, "JSON 结果文件", cfg.Publish.OutputFile)
+	cfg.Publish.HostsFile = ask(reader, "hosts 结果文件", cfg.Publish.HostsFile)
+	cfg.Publish.CSVFile = ask(reader, "CSV 结果文件", cfg.Publish.CSVFile)
 	mode := ask(reader, "发布方式 file/cloudflare-dns", cfg.Publish.Mode)
 	cfg.Publish.Mode = mode
 	if strings.EqualFold(mode, "cloudflare-dns") || strings.EqualFold(mode, "cloudflare") {

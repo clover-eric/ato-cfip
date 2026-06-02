@@ -28,9 +28,13 @@ type RenderResult struct {
 }
 
 func Render(ctx context.Context, entry Entry, preferredDomain string) (RenderResult, error) {
-	preferredDomain = strings.TrimSpace(preferredDomain)
-	if preferredDomain == "" || strings.ContainsAny(preferredDomain, "/?#@") {
-		return RenderResult{}, fmt.Errorf("preferred domain is not configured")
+	return RenderWithAddresses(ctx, entry, []string{preferredDomain})
+}
+
+func RenderWithAddresses(ctx context.Context, entry Entry, addresses []string) (RenderResult, error) {
+	targets, err := cleanAddresses(addresses)
+	if err != nil {
+		return RenderResult{}, err
 	}
 	source := entry.Source
 	if entry.SourceType == "url" || DetectSourceType(source) == "url" {
@@ -40,7 +44,7 @@ func Render(ctx context.Context, entry Entry, preferredDomain string) (RenderRes
 		}
 		source = body
 	}
-	result, err := Convert(source, preferredDomain)
+	result, err := ConvertWithAddresses(source, targets)
 	if err != nil {
 		return RenderResult{}, err
 	}
@@ -49,15 +53,46 @@ func Render(ctx context.Context, entry Entry, preferredDomain string) (RenderRes
 }
 
 func Convert(raw, preferredDomain string) (RenderResult, error) {
+	return ConvertWithAddresses(raw, []string{preferredDomain})
+}
+
+func ConvertWithAddresses(raw string, addresses []string) (RenderResult, error) {
+	targets, err := cleanAddresses(addresses)
+	if err != nil {
+		return RenderResult{}, err
+	}
 	if decoded, ok := decodeBase64Subscription(raw); ok {
-		inner := convertPlain(decoded, preferredDomain)
+		inner := convertPlain(decoded, targets)
 		return RenderResult{
 			Content:   base64.StdEncoding.EncodeToString([]byte(inner.Content)),
 			Converted: inner.Converted,
 			Encoding:  "base64",
 		}, nil
 	}
-	return convertPlain(raw, preferredDomain), nil
+	return convertPlain(raw, targets), nil
+}
+
+func cleanAddresses(addresses []string) ([]string, error) {
+	seen := make(map[string]struct{})
+	targets := make([]string, 0, len(addresses))
+	for _, address := range addresses {
+		address = strings.TrimSpace(address)
+		if address == "" {
+			continue
+		}
+		if strings.ContainsAny(address, "/?#@") {
+			return nil, fmt.Errorf("preferred address %q is invalid", address)
+		}
+		if _, exists := seen[address]; exists {
+			continue
+		}
+		seen[address] = struct{}{}
+		targets = append(targets, address)
+	}
+	if len(targets) == 0 {
+		return nil, fmt.Errorf("preferred address is not configured")
+	}
+	return targets, nil
 }
 
 func fetchSubscription(ctx context.Context, source string) (string, error) {
@@ -90,41 +125,59 @@ func fetchSubscription(ctx context.Context, source string) (string, error) {
 	return string(b), nil
 }
 
-func convertPlain(raw, preferredDomain string) RenderResult {
+func convertPlain(raw string, addresses []string) RenderResult {
 	trimmed := strings.TrimSpace(strings.TrimPrefix(raw, "\ufeff"))
-	if converted, count, ok := convertJSON(trimmed, preferredDomain); ok {
+	preferredAddress := addresses[0]
+	if converted, count, ok := convertJSON(trimmed, preferredAddress); ok {
 		return RenderResult{Content: converted, Converted: count, Encoding: "json"}
 	}
 	if looksLikeClashYAML(trimmed) {
-		if converted, count, ok := convertYAML(trimmed, preferredDomain); ok {
+		if converted, count, ok := convertYAML(trimmed, preferredAddress); ok {
 			return RenderResult{Content: converted, Converted: count, Encoding: "yaml"}
 		}
 	}
-	return convertLines(raw, preferredDomain)
+	return convertLines(raw, addresses)
 }
 
-func convertLines(raw, preferredDomain string) RenderResult {
+func convertLines(raw string, addresses []string) RenderResult {
 	normalized := strings.ReplaceAll(raw, "\r\n", "\n")
 	normalized = strings.ReplaceAll(normalized, "\r", "\n")
 	lines := strings.Split(normalized, "\n")
+	out := make([]string, 0, len(lines)*len(addresses))
 	converted := 0
-	for i, line := range lines {
-		next, ok := rewriteNodeLine(strings.TrimSpace(line), preferredDomain)
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		next, ok := rewriteNodeLine(trimmed, addresses[0])
 		if ok {
-			lines[i] = next
-			converted++
+			if len(addresses) == 1 {
+				out = append(out, next)
+				converted++
+				continue
+			}
+			for i, address := range addresses {
+				if expanded, ok := rewriteNodeLineLabeled(trimmed, address, fmt.Sprintf("CFIP %02d", i+1)); ok {
+					out = append(out, expanded)
+					converted++
+				}
+			}
+			continue
 		}
+		out = append(out, line)
 	}
-	return RenderResult{Content: strings.Join(lines, "\n"), Converted: converted, Encoding: "plain"}
+	return RenderResult{Content: strings.Join(out, "\n"), Converted: converted, Encoding: "plain"}
 }
 
 func rewriteNodeLine(line, preferredDomain string) (string, bool) {
+	return rewriteNodeLineLabeled(line, preferredDomain, "")
+}
+
+func rewriteNodeLineLabeled(line, preferredDomain, label string) (string, bool) {
 	if line == "" || strings.HasPrefix(line, "#") {
 		return line, false
 	}
 	lower := strings.ToLower(line)
 	if strings.HasPrefix(lower, "vmess://") {
-		return rewriteVMess(line, preferredDomain)
+		return rewriteVMessLabeled(line, preferredDomain, label)
 	}
 	switch {
 	case strings.HasPrefix(lower, "vless://"),
@@ -135,13 +188,17 @@ func rewriteNodeLine(line, preferredDomain string) (string, bool) {
 		strings.HasPrefix(lower, "hysteria://"),
 		strings.HasPrefix(lower, "tuic://"),
 		strings.HasPrefix(lower, "naive://"):
-		return rewriteURLHost(line, preferredDomain)
+		return rewriteURLHostLabeled(line, preferredDomain, label)
 	default:
 		return line, false
 	}
 }
 
 func rewriteURLHost(line, preferredDomain string) (string, bool) {
+	return rewriteURLHostLabeled(line, preferredDomain, "")
+}
+
+func rewriteURLHostLabeled(line, preferredDomain, label string) (string, bool) {
 	u, err := url.Parse(line)
 	if err != nil || u.Scheme == "" || u.Host == "" {
 		return line, false
@@ -149,12 +206,30 @@ func rewriteURLHost(line, preferredDomain string) (string, bool) {
 	if port := u.Port(); port != "" {
 		u.Host = net.JoinHostPort(preferredDomain, port)
 	} else {
-		u.Host = preferredDomain
+		u.Host = urlHost(preferredDomain)
+	}
+	if label != "" {
+		if u.Fragment == "" {
+			u.Fragment = label
+		} else {
+			u.Fragment = u.Fragment + " " + label
+		}
 	}
 	return u.String(), true
 }
 
+func urlHost(address string) string {
+	if ip := net.ParseIP(address); ip != nil && ip.To4() == nil {
+		return "[" + ip.String() + "]"
+	}
+	return address
+}
+
 func rewriteVMess(line, preferredDomain string) (string, bool) {
+	return rewriteVMessLabeled(line, preferredDomain, "")
+}
+
+func rewriteVMessLabeled(line, preferredDomain, label string) (string, bool) {
 	payload := strings.TrimSpace(line[len("vmess://"):])
 	decoded, ok := decodeAnyBase64(payload)
 	if !ok {
@@ -174,6 +249,13 @@ func rewriteVMess(line, preferredDomain string) (string, bool) {
 	}
 	if !changed {
 		return line, false
+	}
+	if label != "" {
+		if ps, ok := node["ps"].(string); ok && strings.TrimSpace(ps) != "" {
+			node["ps"] = ps + " " + label
+		} else {
+			node["ps"] = label
+		}
 	}
 	b, err := json.Marshal(node)
 	if err != nil {

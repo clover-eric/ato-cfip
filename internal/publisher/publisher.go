@@ -16,7 +16,7 @@ type Publisher interface {
 func New(cfg config.PublishConfig) (Publisher, error) {
 	switch strings.ToLower(cfg.Mode) {
 	case "", "file":
-		return FilePublisher{OutputFile: cfg.OutputFile, HostsFile: cfg.HostsFile}, nil
+		return FilePublisher{OutputFile: cfg.OutputFile, HostsFile: cfg.HostsFile, CSVFile: cfg.CSVFile}, nil
 	case "cloudflare", "cloudflare-dns":
 		if cfg.Cloudflare.APIToken == "" || cfg.Cloudflare.ZoneID == "" {
 			return nil, fmt.Errorf("cloudflare publisher requires api_token and zone_id")

@@ -37,6 +37,7 @@ publish:
   ttl: 60
   output_file: "data/smoke_best_ips.json"
   hosts_file: "data/smoke_hosts.txt"
+  csv_file: "data/smoke_best_ips.csv"
   cloudflare:
     api_token: ""
     zone_id: ""

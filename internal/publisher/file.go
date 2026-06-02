@@ -2,10 +2,12 @@ package publisher
 
 import (
 	"context"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/clover-eric/ato-cfip/internal/model"
@@ -14,6 +16,7 @@ import (
 type FilePublisher struct {
 	OutputFile string
 	HostsFile  string
+	CSVFile    string
 }
 
 func (p FilePublisher) Publish(ctx context.Context, set model.PublishedSet) error {
@@ -24,6 +27,11 @@ func (p FilePublisher) Publish(ctx context.Context, set model.PublishedSet) erro
 	}
 	if p.HostsFile != "" {
 		if err := writeHosts(p.HostsFile, set); err != nil {
+			return err
+		}
+	}
+	if p.CSVFile != "" {
+		if err := writeCSV(p.CSVFile, set); err != nil {
 			return err
 		}
 	}
@@ -51,4 +59,32 @@ func writeHosts(path string, set model.PublishedSet) error {
 		b.WriteString(fmt.Sprintf("%s %s\n", ip.IP, set.Domain))
 	}
 	return os.WriteFile(path, []byte(b.String()), 0o644)
+}
+
+func writeCSV(path string, set model.PublishedSet) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, FormatCSV(set), 0o644)
+}
+
+func FormatCSV(set model.PublishedSet) []byte {
+	var b strings.Builder
+	w := csv.NewWriter(&b)
+	_ = w.Write([]string{"rank", "ip", "domain", "download_mbps", "delay_ms", "loss_rate", "colo", "round", "generated_at"})
+	for i, item := range set.IPs {
+		_ = w.Write([]string{
+			strconv.Itoa(i + 1),
+			item.IP,
+			set.Domain,
+			strconv.FormatFloat(item.DownloadMBps, 'f', 2, 64),
+			strconv.FormatFloat(item.DelayMS, 'f', 2, 64),
+			strconv.FormatFloat(item.LossRate, 'f', 4, 64),
+			item.Colo,
+			strconv.Itoa(item.Round),
+			set.GeneratedAt.Format("2006-01-02T15:04:05Z07:00"),
+		})
+	}
+	w.Flush()
+	return []byte(b.String())
 }

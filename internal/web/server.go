@@ -51,7 +51,7 @@ func New(cfg config.Config, runner *scheduler.Runner) *Server {
 	s := &Server{
 		cfg:       cfg,
 		runner:    runner,
-		publicTpl: template.Must(template.New("public").Parse(publicHTML)),
+		publicTpl: template.Must(template.New("public").Parse(polishPublicHTML(publicHTML))),
 		setupTpl:  template.Must(template.New("setup").Parse(setupHTML)),
 		adminTpl:  template.Must(template.New("admin").Parse(polishAdminHTML(adminHTML))),
 		runtime:   loadRuntime(),
@@ -60,22 +60,11 @@ func New(cfg config.Config, runner *scheduler.Runner) *Server {
 	if s.runtime.Domain != "" {
 		s.runner.SetDomain(s.runtime.Domain)
 	}
-	if s.runtime.Cloudflare.APIToken != "" && s.runtime.Cloudflare.ZoneID != "" && s.runtime.Domain != "" {
-		publishCfg := s.runner.Config().Publish
-		publishCfg.Mode = "cloudflare-dns"
-		publishCfg.Domain = s.runtime.Domain
-		publishCfg.Cloudflare.APIToken = s.runtime.Cloudflare.APIToken
-		publishCfg.Cloudflare.ZoneID = s.runtime.Cloudflare.ZoneID
-		publishCfg.Cloudflare.Proxied = s.runtime.Cloudflare.Proxied
-		if pub, err := publisher.New(publishCfg); err == nil {
-			s.runner.SetPublisher(publishCfg, pub)
-		} else {
-			log.Printf("load runtime cloudflare publisher failed: %v", err)
-		}
-	}
 	mux.HandleFunc("/", s.handleIndex)
 	mux.HandleFunc("/setup", s.handleSetupPage)
 	mux.HandleFunc("/admin", s.handleAdmin)
+	mux.HandleFunc("/best.csv", s.handleBestCSV)
+	mux.HandleFunc("/ips.csv", s.handleBestCSV)
 	mux.HandleFunc("/json", s.handlePublicStatus)
 	mux.HandleFunc("/api/status", s.handleStatus)
 	mux.HandleFunc("/api/public", s.handlePublicStatus)
@@ -96,6 +85,14 @@ func New(cfg config.Config, runner *scheduler.Runner) *Server {
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	return s
+}
+
+func polishPublicHTML(html string) string {
+	return strings.ReplaceAll(
+		html,
+		`&#27492;&#39029;&#21482;&#23637;&#31034;&#31995;&#32479;&#29366;&#24577;&#65292;&#19981;&#20844;&#24320;&#20248;&#36873; IP&#12290;`,
+		`&#27492;&#39029;&#21482;&#23637;&#31034;&#31995;&#32479;&#29366;&#24577;&#65292;&#19981;&#30452;&#25509;&#23637;&#31034;&#20248;&#36873; IP&#12290;CSV &#32467;&#26524;&#28304;&#65306;/best.csv`,
+	)
 }
 
 func polishAdminHTML(html string) string {
@@ -148,6 +145,31 @@ func polishAdminHTML(html string) string {
 		html,
 		`return v.replace('Finished','\u8fd0\u884c\u5b8c\u6210')`,
 		`return v.replace('Finished','\u8fd0\u884c\u5b8c\u6210').replace(/Rechecking stable IP pool (\d+)\/(\d+)/,'\u590d\u6d4b\u7a33\u5b9a IP \u6c60 $1/$2').replace(/Pool recheck kept (\d+)\/(\d+) IPs, (\d+) need replacement/,'IP \u6c60\u590d\u6d4b\u4fdd\u7559 $1/$2\uff0c\u9700\u66ff\u6362 $3 \u4e2a').replace(/Scanning public IP library, need (\d+) replacements/,'\u6b63\u5728\u4ece\u516c\u5171 IP \u5e93\u8865\u5145 $1 \u4e2a\u66ff\u6362 IP').replace(/qualified IP pool incomplete: (\d+)\/(\d+) IPs meet speed >= ([0-9.]+) MB\/s and delay <= (\d+) ms; keeping previous published pool/,'\u8fbe\u6807 IP \u6c60\u672a\u51d1\u6ee1\uff1a$1/$2\uff08\u2265 $3 MB/s\uff0c\u2264 $4 ms\uff09\uff0c\u5df2\u4fdd\u7559\u4e0a\u4e00\u7248\u53d1\u5e03\u7ed3\u679c')`,
+	)
+	html = strings.ReplaceAll(
+		html,
+		`<b>自动绑定优选域名</b><br>输入你想使用的优选域名，例如 cf.example.com。系统会自动识别 Cloudflare Zone，并创建或更新 DNS 记录。`,
+		`<b>绑定到面板程序</b><br>输入你想使用的域名，例如 cf.example.com。系统会把该域名指向当前 NAS 面板入口；优选结果保存在本机 CSV，不再写入 Cloudflare 优选 IP 记录。目标地址留空时会自动检测公网 IP。`,
+	)
+	html = strings.ReplaceAll(
+		html,
+		`<input id="bindDomain" placeholder="cf.example.com"><input id="bindToken" type="password" placeholder="粘贴 Cloudflare API Token">`,
+		`<input id="bindDomain" placeholder="cf.example.com"><input id="bindTarget" placeholder="面板目标地址，可留空自动检测公网 IP"><input id="bindToken" type="password" placeholder="粘贴 Cloudflare API Token">`,
+	)
+	html = strings.ReplaceAll(
+		html,
+		`JSON.stringify({domain:bindDomain.value,api_token:bindToken.value,proxied:false})`,
+		`JSON.stringify({domain:bindDomain.value,target:bindTarget.value,api_token:bindToken.value,proxied:false})`,
+	)
+	html = strings.ReplaceAll(
+		html,
+		`bindDone.textContent='域名 '+d.domain+' 已绑定到 Cloudflare Zone '+d.zone_name+'，已发布 IP 数量：'+d.published;`,
+		`bindDone.textContent='域名 '+d.domain+' 已指向 '+d.record_type+' '+d.target+'；CSV 结果源：'+d.csv_url;`,
+	)
+	html = strings.ReplaceAll(
+		html,
+		`['\u76d1\u542c\u5730\u5740',c.web_listen]]`,
+		`['\u76d1\u542c\u5730\u5740',c.web_listen],['CSV \u7ed3\u679c\u6e90',c.csv_url||'/best.csv']]`,
 	)
 	return html
 }
@@ -209,6 +231,26 @@ func (s *Server) renderSetup(w http.ResponseWriter) {
 	_ = s.setupTpl.Execute(w, pageData{Title: s.cfg.Web.Title, Domain: s.cfg.Publish.Domain})
 }
 
+func (s *Server) handleBestCSV(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/best.csv" && r.URL.Path != "/ips.csv" {
+		http.NotFound(w, r)
+		return
+	}
+	if !s.runtime.Initialized {
+		http.Error(w, "setup required", http.StatusServiceUnavailable)
+		return
+	}
+	status := s.runner.Status()
+	if len(status.Published.IPs) == 0 {
+		http.Error(w, "preferred ip pool is not ready", http.StatusServiceUnavailable)
+		return
+	}
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Disposition", `inline; filename="best_ips.csv"`)
+	_, _ = w.Write(publisher.FormatCSV(status.Published))
+}
+
 func (s *Server) handlePublicStatus(w http.ResponseWriter, r *http.Request) {
 	status := s.runner.Status()
 	cfg := s.runner.Config()
@@ -240,6 +282,7 @@ func (s *Server) handlePublicStatus(w http.ResponseWriter, r *http.Request) {
 			"domain_configured": isConfiguredDomain(cfg.Publish.Domain),
 			"schedule":          cfg.Server.Schedule,
 			"rounds_per_hour":   cfg.Test.RoundsPerHour,
+			"csv_url":           requestBaseURL(r) + "/best.csv",
 		},
 	})
 }
@@ -274,6 +317,8 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 			"download_url":        cfg.Test.URL,
 			"web_listen":          cfg.Web.Listen,
 			"domain_configured":   isConfiguredDomain(cfg.Publish.Domain),
+			"csv_file":            cfg.Publish.CSVFile,
+			"csv_url":             requestBaseURL(r) + "/best.csv",
 		},
 	})
 }
@@ -479,8 +524,9 @@ func (s *Server) handleSubscriptions(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		cfg := s.runner.Config()
-		if !isConfiguredDomain(cfg.Publish.Domain) {
-			http.Error(w, "please bind a preferred domain before generating subscriptions", http.StatusBadRequest)
+		addresses, err := s.subscriptionAddresses(cfg)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		token, err := subscription.NewToken()
@@ -499,7 +545,7 @@ func (s *Server) handleSubscriptions(w http.ResponseWriter, r *http.Request) {
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 35*time.Second)
 		defer cancel()
-		result, err := subscription.Render(ctx, entry, cfg.Publish.Domain)
+		result, err := subscription.RenderWithAddresses(ctx, entry, addresses)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -559,13 +605,14 @@ func (s *Server) handlePublicSubscription(w http.ResponseWriter, r *http.Request
 		return
 	}
 	cfg := s.runner.Config()
-	if !isConfiguredDomain(cfg.Publish.Domain) {
-		http.Error(w, "preferred domain is not configured", http.StatusServiceUnavailable)
+	addresses, err := s.subscriptionAddresses(cfg)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 35*time.Second)
 	defer cancel()
-	result, err := subscription.Render(ctx, entry, cfg.Publish.Domain)
+	result, err := subscription.RenderWithAddresses(ctx, entry, addresses)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
@@ -575,6 +622,30 @@ func (s *Server) handlePublicSubscription(w http.ResponseWriter, r *http.Request
 	w.Header().Set("X-ATO-CFIP-Converted", strconv.Itoa(result.Converted))
 	w.Header().Set("X-ATO-CFIP-Encoding", result.Encoding)
 	_, _ = io.WriteString(w, result.Content)
+}
+
+func (s *Server) subscriptionAddresses(cfg config.Config) ([]string, error) {
+	status := s.runner.Status()
+	addresses := make([]string, 0, len(status.Published.IPs))
+	seen := make(map[string]struct{})
+	for _, item := range status.Published.IPs {
+		ip := strings.TrimSpace(item.IP)
+		if ip == "" {
+			continue
+		}
+		if _, exists := seen[ip]; exists {
+			continue
+		}
+		seen[ip] = struct{}{}
+		addresses = append(addresses, ip)
+	}
+	if len(addresses) > 0 {
+		return addresses, nil
+	}
+	if isConfiguredDomain(cfg.Publish.Domain) {
+		return []string{cfg.Publish.Domain}, nil
+	}
+	return nil, fmt.Errorf("preferred IP pool is not ready; run a speed test first")
 }
 
 func (s *Server) subscriptionSummary(r *http.Request, entry subscription.Entry) map[string]any {
@@ -638,6 +709,7 @@ func (s *Server) handleCloudflareBind(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Domain   string `json:"domain"`
 		APIToken string `json:"api_token"`
+		Target   string `json:"target"`
 		Proxied  bool   `json:"proxied"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -661,12 +733,22 @@ func (s *Server) handleCloudflareBind(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	target, targetNote, err := detectPanelTarget(ctx, req.Target)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	record, err := publisher.UpsertPanelRecord(ctx, token, zone.ID, domain, target, s.runner.Config().Publish.TTL, req.Proxied)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
 	cfg := s.runner.Config().Publish
-	cfg.Mode = "cloudflare-dns"
+	cfg.Mode = "file"
 	cfg.Domain = domain
 	cfg.Cloudflare.APIToken = token
 	cfg.Cloudflare.ZoneID = zone.ID
-	cfg.Cloudflare.Proxied = false
+	cfg.Cloudflare.Proxied = req.Proxied
 	pub, err := publisher.New(cfg)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -678,7 +760,7 @@ func (s *Server) handleCloudflareBind(w http.ResponseWriter, r *http.Request) {
 		APIToken: token,
 		ZoneID:   zone.ID,
 		ZoneName: zone.Name,
-		Proxied:  false,
+		Proxied:  req.Proxied,
 	}
 	if err := saveRuntime(s.runtime); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -687,17 +769,21 @@ func (s *Server) handleCloudflareBind(w http.ResponseWriter, r *http.Request) {
 	status := s.runner.Status()
 	if len(status.Published.IPs) > 0 {
 		if err := pub.Publish(ctx, status.Published); err != nil {
-			http.Error(w, err.Error(), http.StatusBadGateway)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 	}
 	writeJSON(w, map[string]any{
-		"status":    "saved",
-		"domain":    domain,
-		"zone_id":   zone.ID,
-		"zone_name": zone.Name,
-		"published": len(status.Published.IPs),
-		"note":      note,
+		"status":      "saved",
+		"domain":      domain,
+		"zone_id":     zone.ID,
+		"zone_name":   zone.Name,
+		"record_type": record.RecordType,
+		"target":      record.Target,
+		"proxied":     record.Proxied,
+		"csv_url":     "https://" + domain + "/best.csv",
+		"published":   len(status.Published.IPs),
+		"note":        strings.TrimSpace(note + " " + targetNote),
 	})
 }
 
@@ -770,6 +856,63 @@ func requestBaseURL(r *http.Request) string {
 		host = r.Host
 	}
 	return scheme + "://" + host
+}
+
+func detectPanelTarget(ctx context.Context, input string) (string, string, error) {
+	target := strings.TrimSpace(input)
+	if target != "" {
+		normalized, err := normalizePanelTarget(target)
+		if err != nil {
+			return "", "", err
+		}
+		return normalized, "", nil
+	}
+	client := &http.Client{Timeout: 10 * time.Second}
+	for _, endpoint := range []string{"https://api.ipify.org", "https://ifconfig.me/ip"} {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+		if err != nil {
+			continue
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			continue
+		}
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, 128))
+		_ = resp.Body.Close()
+		if readErr != nil || resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			continue
+		}
+		ip := strings.TrimSpace(string(body))
+		if parsed := net.ParseIP(ip); parsed != nil {
+			return parsed.String(), "Auto-detected current public IP.", nil
+		}
+	}
+	return "", "", fmt.Errorf("could not auto-detect public IP; please enter your NAS public IP or a CNAME target")
+}
+
+func normalizePanelTarget(input string) (string, error) {
+	target := strings.TrimSpace(input)
+	if target == "" {
+		return "", fmt.Errorf("panel target is required")
+	}
+	if ip := net.ParseIP(target); ip != nil {
+		return ip.String(), nil
+	}
+	if strings.Contains(target, "://") {
+		u, err := url.Parse(target)
+		if err != nil || u.Host == "" {
+			return "", fmt.Errorf("invalid panel target")
+		}
+		target = u.Host
+	}
+	if h, _, err := net.SplitHostPort(target); err == nil {
+		target = h
+	}
+	target = strings.Trim(strings.ToLower(target), ".[] ")
+	if target == "" || strings.ContainsAny(target, "/?#@") {
+		return "", fmt.Errorf("invalid panel target")
+	}
+	return target, nil
 }
 
 func normalizeDomain(input string) (string, string, error) {

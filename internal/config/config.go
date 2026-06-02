@@ -61,6 +61,7 @@ type PublishConfig struct {
 	TTL        int              `yaml:"ttl"`
 	OutputFile string           `yaml:"output_file"`
 	HostsFile  string           `yaml:"hosts_file"`
+	CSVFile    string           `yaml:"csv_file"`
 	Cloudflare CloudflareConfig `yaml:"cloudflare"`
 }
 
@@ -158,6 +159,7 @@ func Defaults() Config {
 			TTL:        60,
 			OutputFile: "data/best_ips.json",
 			HostsFile:  "data/hosts.txt",
+			CSVFile:    "data/best_ips.csv",
 		},
 		Storage: StorageConfig{
 			HistoryPath: "data/results.jsonl",
@@ -178,6 +180,7 @@ func (c *Config) ApplyEnv() {
 	envString("ATO_PUBLISH_MODE", &c.Publish.Mode)
 	envString("ATO_OUTPUT_FILE", &c.Publish.OutputFile)
 	envString("ATO_HOSTS_FILE", &c.Publish.HostsFile)
+	envString("ATO_CSV_FILE", &c.Publish.CSVFile)
 	envString("CLOUDFLARE_API_TOKEN", &c.Publish.Cloudflare.APIToken)
 	envString("CLOUDFLARE_ZONE_ID", &c.Publish.Cloudflare.ZoneID)
 	envBool("CLOUDFLARE_PROXIED", &c.Publish.Cloudflare.Proxied)

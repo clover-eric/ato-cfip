@@ -37,6 +37,12 @@ type CloudflareZone struct {
 	Name string `json:"name"`
 }
 
+type PanelRecordResult struct {
+	RecordType string `json:"record_type"`
+	Target     string `json:"target"`
+	Proxied    bool   `json:"proxied"`
+}
+
 type cloudflareZoneResponse struct {
 	Success bool              `json:"success"`
 	Errors  []cloudflareError `json:"errors"`
@@ -155,6 +161,78 @@ func UpsertRecords(ctx context.Context, apiToken, zoneID, domain string, ips []s
 	return pub.Publish(ctx, set)
 }
 
+func UpsertPanelRecord(ctx context.Context, apiToken, zoneID, domain, target string, ttl int, proxied bool) (PanelRecordResult, error) {
+	if ttl <= 0 {
+		ttl = 60
+	}
+	record, err := panelRecord(domain, target, ttl, proxied)
+	if err != nil {
+		return PanelRecordResult{}, err
+	}
+	pub := CloudflarePublisher{APIToken: apiToken, ZoneID: zoneID, Domain: domain, TTL: ttl, Proxied: proxied}
+	records, err := pub.listRecordsByName(ctx)
+	if err != nil {
+		return PanelRecordResult{}, err
+	}
+	updated := false
+	for _, existing := range records {
+		if existing.Type != "A" && existing.Type != "AAAA" && existing.Type != "CNAME" {
+			continue
+		}
+		if !updated && strings.EqualFold(existing.Type, record.Type) {
+			if needsRecordUpdate(existing, record) {
+				if err := pub.updateRecord(ctx, existing.ID, record); err != nil {
+					return PanelRecordResult{}, err
+				}
+			}
+			updated = true
+			continue
+		}
+		if err := pub.deleteRecord(ctx, existing.ID); err != nil {
+			return PanelRecordResult{}, err
+		}
+	}
+	if !updated {
+		if err := pub.createRecord(ctx, record); err != nil {
+			return PanelRecordResult{}, err
+		}
+	}
+	return PanelRecordResult{RecordType: record.Type, Target: record.Content, Proxied: record.Proxied}, nil
+}
+
+func panelRecord(domain, target string, ttl int, proxied bool) (cloudflareRecord, error) {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return cloudflareRecord{}, fmt.Errorf("panel target is required")
+	}
+	if ip := net.ParseIP(target); ip != nil {
+		recordType := "AAAA"
+		if ip.To4() != nil {
+			recordType = "A"
+		}
+		return cloudflareRecord{Type: recordType, Name: domain, Content: ip.String(), TTL: ttl, Proxied: proxied}, nil
+	}
+	host := target
+	if strings.Contains(host, "://") {
+		u, err := url.Parse(host)
+		if err != nil || u.Host == "" {
+			return cloudflareRecord{}, fmt.Errorf("invalid panel target")
+		}
+		host = u.Host
+	}
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	host = strings.Trim(strings.ToLower(host), ".[] ")
+	if host == "" || strings.ContainsAny(host, "/?#@") {
+		return cloudflareRecord{}, fmt.Errorf("invalid panel target")
+	}
+	if strings.EqualFold(host, strings.Trim(strings.ToLower(domain), ".")) {
+		return cloudflareRecord{}, fmt.Errorf("panel target cannot be the same as the bound domain")
+	}
+	return cloudflareRecord{Type: "CNAME", Name: domain, Content: host, TTL: ttl, Proxied: proxied}, nil
+}
+
 func listZoneByName(ctx context.Context, apiToken, name string) (CloudflareZone, error) {
 	endpoint := fmt.Sprintf("https://api.cloudflare.com/client/v4/zones?name=%s&per_page=1", url.QueryEscape(name))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
@@ -176,6 +254,20 @@ func listZoneByName(ctx context.Context, apiToken, name string) (CloudflareZone,
 }
 
 func (p CloudflarePublisher) listRecords(ctx context.Context) ([]cloudflareRecord, error) {
+	records, err := p.listRecordsByName(ctx)
+	if err != nil {
+		return nil, err
+	}
+	filtered := make([]cloudflareRecord, 0)
+	for _, record := range records {
+		if record.Type == "A" || record.Type == "AAAA" || record.Type == "CNAME" {
+			filtered = append(filtered, record)
+		}
+	}
+	return filtered, nil
+}
+
+func (p CloudflarePublisher) listRecordsByName(ctx context.Context) ([]cloudflareRecord, error) {
 	endpoint := fmt.Sprintf("https://api.cloudflare.com/client/v4/zones/%s/dns_records?name=%s&per_page=100", p.ZoneID, url.QueryEscape(p.Domain))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
@@ -189,13 +281,7 @@ func (p CloudflarePublisher) listRecords(ctx context.Context) ([]cloudflareRecor
 	if !out.Success {
 		return nil, fmt.Errorf("cloudflare list records failed: %v", out.Errors)
 	}
-	filtered := make([]cloudflareRecord, 0)
-	for _, record := range out.Result {
-		if record.Type == "A" || record.Type == "AAAA" {
-			filtered = append(filtered, record)
-		}
-	}
-	return filtered, nil
+	return out.Result, nil
 }
 
 func (p CloudflarePublisher) createRecord(ctx context.Context, record cloudflareRecord) error {

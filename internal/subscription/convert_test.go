@@ -60,6 +60,23 @@ func TestConvertBase64Subscription(t *testing.T) {
 	}
 }
 
+func TestConvertWithAddressPoolExpandsPlainNodes(t *testing.T) {
+	source := "vless://uuid@example.com:443?security=tls&sni=origin.example.com#node"
+	got, err := ConvertWithAddresses(source, []string{"1.1.1.1", "1.0.0.1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Converted != 2 {
+		t.Fatalf("expected two converted nodes, got %#v", got)
+	}
+	if !strings.Contains(got.Content, "uuid@1.1.1.1:443") || !strings.Contains(got.Content, "uuid@1.0.0.1:443") {
+		t.Fatalf("address pool was not expanded: %s", got.Content)
+	}
+	if !strings.Contains(got.Content, "CFIP%2001") || !strings.Contains(got.Content, "CFIP%2002") {
+		t.Fatalf("expanded nodes should be labeled: %s", got.Content)
+	}
+}
+
 func TestConvertClashYAML(t *testing.T) {
 	source := "proxies:\n  - name: cf\n    type: vless\n    server: origin.example.com\n    port: 443\n    sni: origin.example.com\n"
 	got, err := Convert(source, "best.example.com")
