@@ -64,8 +64,7 @@ jobs:
         run: |
           mkdir -p dist
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o dist/ato-cfip-linux-amd64 ./cmd/cfst-daemon
-          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o dist/ato-cfip-linux-arm64 ./cmd/cfst-daemon
-          chmod +x dist/ato-cfip-linux-amd64 dist/ato-cfip-linux-arm64
+          chmod +x dist/ato-cfip-linux-amd64
 
       - name: Build and push
         uses: docker/build-push-action@v6
