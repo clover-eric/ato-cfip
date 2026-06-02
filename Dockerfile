@@ -8,7 +8,7 @@ ARG TARGETOS
 ARG TARGETARCH
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /out/cfst-daemon ./cmd/cfst-daemon
 
-FROM alpine:3.20
+FROM --platform=$TARGETPLATFORM alpine:3.20
 
 RUN apk add --no-cache ca-certificates tzdata
 WORKDIR /app
