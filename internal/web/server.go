@@ -56,6 +56,7 @@ func New(cfg config.Config, runner *scheduler.Runner) *Server {
 		s.runner.SetDomain(s.runtime.Domain)
 	}
 	mux.HandleFunc("/", s.handleIndex)
+	mux.HandleFunc("/setup", s.handleSetupPage)
 	mux.HandleFunc("/admin", s.handleAdmin)
 	mux.HandleFunc("/json", s.handlePublicStatus)
 	mux.HandleFunc("/api/status", s.handleStatus)
@@ -94,12 +95,23 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !s.runtime.Initialized {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_ = s.setupTpl.Execute(w, pageData{Title: s.cfg.Web.Title, Domain: s.cfg.Publish.Domain})
+		s.renderSetup(w)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = s.publicTpl.Execute(w, pageData{Title: s.cfg.Web.Title, Domain: s.cfg.Publish.Domain})
+}
+
+func (s *Server) handleSetupPage(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/setup" {
+		http.NotFound(w, r)
+		return
+	}
+	if s.runtime.Initialized {
+		http.Redirect(w, r, "/admin", http.StatusFound)
+		return
+	}
+	s.renderSetup(w)
 }
 
 func (s *Server) handleAdmin(w http.ResponseWriter, r *http.Request) {
@@ -107,8 +119,18 @@ func (s *Server) handleAdmin(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	if !s.runtime.Initialized {
+		http.Redirect(w, r, "/setup", http.StatusFound)
+		return
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = s.adminTpl.Execute(w, pageData{Title: s.cfg.Web.Title, Domain: s.cfg.Publish.Domain})
+}
+
+func (s *Server) renderSetup(w http.ResponseWriter) {
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_ = s.setupTpl.Execute(w, pageData{Title: s.cfg.Web.Title, Domain: s.cfg.Publish.Domain})
 }
 
 func (s *Server) handlePublicStatus(w http.ResponseWriter, r *http.Request) {
