@@ -58,13 +58,24 @@ jobs:
             type=ref,event=tag
             type=sha
 
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+
+      - name: Build release binaries
+        run: |
+          mkdir -p dist
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o dist/ato-cfip-linux-amd64 ./cmd/cfst-daemon
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o dist/ato-cfip-linux-arm64 ./cmd/cfst-daemon
+          chmod +x dist/ato-cfip-linux-amd64 dist/ato-cfip-linux-arm64
+
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: .
+          file: Dockerfile.release
           platforms: linux/amd64,linux/arm64
-          build-args: |
-            BUILDKIT_INLINE_CACHE=1
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

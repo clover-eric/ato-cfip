@@ -1,0 +1,13 @@
+FROM alpine:3.20
+
+ARG TARGETARCH
+RUN apk add --no-cache ca-certificates tzdata
+WORKDIR /app
+COPY dist/ato-cfip-linux-${TARGETARCH} /app/cfst-daemon
+COPY config.example.yaml /app/config.yaml
+COPY ip.txt /app/ip.txt
+COPY ipv6.txt /app/ipv6.txt
+RUN chmod +x /app/cfst-daemon
+VOLUME ["/app/data"]
+EXPOSE 8080
+CMD ["/app/cfst-daemon", "-config", "/app/config.yaml"]
