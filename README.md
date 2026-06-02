@@ -105,7 +105,6 @@ http://127.0.0.1:8080
 
 ## 注意
 
-- 默认测速地址 `https://cf.xiu2.xyz/url` 不保证长期稳定，正式使用建议自建下载测速 URL。
+- 默认测速地址使用 `https://speed.cloudflare.com/__down?bytes=50000000`。正式使用时也可以换成你自建的 Cloudflare 下载测速 URL。
 - 如果 NAS 或路由器走代理，测速结果可能不准确。
 - 如果 NAS 无法拉取 `ghcr.io/clover-eric/ato-cfip:latest`，需要先把 GitHub Package 设置为 Public，或改用 Docker Hub / 阿里云 ACR 镜像。
-

@@ -168,69 +168,69 @@ const dashboardHTML = `<!doctype html>
         <div class="mark">CF</div>
         <div>
           <h1>{{.Title}}</h1>
-          <div class="sub">24h Cloudflare speed test and preferred DNS publishing</div>
+          <div class="sub">24 小时自动测速与优选域名发布</div>
         </div>
       </div>
       <div class="actions">
         <a class="linkbtn" href="/json" target="_blank">JSON</a>
-        <button class="primary" id="runBtn">Run now</button>
+        <button class="primary" id="runBtn">立即测速</button>
       </div>
     </header>
 
     <div class="hero">
       <div>
-        <div class="badge"><span class="dot" id="stateDot"></span><span id="stateText">Loading</span></div>
+        <div class="badge"><span class="dot" id="stateDot"></span><span id="stateText">加载中</span></div>
         <div class="domain" id="domainText">{{.Domain}}</div>
-        <div class="sub">Point your client DNS or service domain to this name after Cloudflare DNS publishing is enabled.</div>
+        <div class="sub">将客户端 DNS 或业务域名指向这里发布的优选 IP。注意：DNS 域名不能包含端口。</div>
         <div class="domain-tools">
-          <button id="editDomainBtn" type="button">Edit domain</button>
+          <button id="editDomainBtn" type="button">修改域名</button>
         </div>
         <div class="domain-tools" id="domainEditor" hidden>
-          <input id="domainInput" type="text" spellcheck="false" placeholder="example.com or https://example.com:666/">
-          <button id="saveDomainBtn" type="button">Save</button>
-          <button id="cancelDomainBtn" type="button">Cancel</button>
+          <input id="domainInput" type="text" spellcheck="false" placeholder="ip.is33.cn 或 https://ip.is33.cn:666/">
+          <button id="saveDomainBtn" type="button">保存</button>
+          <button id="cancelDomainBtn" type="button">取消</button>
         </div>
-        <div class="notice" id="stageText">Waiting for status.</div>
+        <div class="notice" id="stageText">等待状态。</div>
         <div class="progress">
-          <div class="mini"><div class="k">Round</div><div class="v" id="roundNow">-</div></div>
-          <div class="mini"><div class="k">Selected</div><div class="v" id="selectedNow">-</div></div>
-          <div class="mini"><div class="k">Candidates</div><div class="v" id="candidateNow">-</div></div>
-          <div class="mini"><div class="k">Elapsed</div><div class="v" id="elapsedNow">-</div></div>
+          <div class="mini"><div class="k">轮次</div><div class="v" id="roundNow">-</div></div>
+          <div class="mini"><div class="k">已选</div><div class="v" id="selectedNow">-</div></div>
+          <div class="mini"><div class="k">候选</div><div class="v" id="candidateNow">-</div></div>
+          <div class="mini"><div class="k">耗时</div><div class="v" id="elapsedNow">-</div></div>
         </div>
       </div>
       <div class="stats">
-        <div class="stat"><div class="k">Published IPs</div><div class="v" id="count">0</div></div>
-        <div class="stat"><div class="k">Target</div><div class="v" id="target">-</div></div>
-        <div class="stat"><div class="k">Top speed</div><div class="v" id="topSpeed">-</div></div>
-        <div class="stat"><div class="k">Last run</div><div class="v" id="lastRun">-</div></div>
+        <div class="stat"><div class="k">已发布 IP</div><div class="v" id="count">0</div></div>
+        <div class="stat"><div class="k">目标数量</div><div class="v" id="target">-</div></div>
+        <div class="stat"><div class="k">最快速度</div><div class="v" id="topSpeed">-</div></div>
+        <div class="stat"><div class="k">最近运行</div><div class="v" id="lastRun">-</div></div>
       </div>
     </div>
 
     <div class="grid">
       <section>
         <div class="section-head">
-          <h2>Current preferred IPs</h2>
-          <span class="sub" id="generatedAt">Waiting for first publish</span>
+          <h2>当前优选 IP</h2>
+          <span class="sub" id="generatedAt">等待首次发布</span>
         </div>
-        <div id="tableWrap" class="empty">No published result yet. Click Run now or wait for the hourly schedule.</div>
+        <div id="tableWrap" class="empty">还没有发布结果。可以点击“立即测速”，或等待定时任务自动运行。</div>
       </section>
 
       <div class="side">
         <section>
-          <div class="section-head"><h2>Runtime config</h2></div>
+          <div class="section-head"><h2>运行配置</h2></div>
           <div class="kv" id="configBox"></div>
         </section>
         <section>
-          <div class="section-head"><h2>Deploy hints</h2></div>
+          <div class="section-head"><h2>部署提示</h2></div>
           <div class="kv">
-            <div class="row"><span>DNS record</span><span>DNS only / gray cloud</span></div>
-            <div class="row"><span>Panel URL</span><span>NAS-IP:PORT</span></div>
-            <div class="row"><span>Domain env</span><span>ATO_DOMAIN</span></div>
+            <div class="row"><span>DNS 记录</span><span>仅 DNS / 灰云</span></div>
+            <div class="row"><span>面板地址</span><span>域名:端口</span></div>
+            <div class="row"><span>配置变量</span><span>ATO_DOMAIN</span></div>
           </div>
         </section>
       </div>
     </div>
-    <div class="foot">The page refreshes every 5 seconds. A full default run can take several minutes because it performs multiple rounds.</div>
+    <div class="foot">页面每 5 秒自动刷新。完整测速会执行多轮任务，可能需要几分钟。</div>
   </div>
 
   <script>
@@ -263,7 +263,7 @@ const dashboardHTML = `<!doctype html>
 
     async function saveDomain() {
       saveDomainBtn.classList.add('is-busy');
-      saveDomainBtn.textContent = 'Saving';
+      saveDomainBtn.textContent = '保存中';
       try {
         const res = await fetch('/api/config/domain', {
           method: 'POST',
@@ -276,15 +276,15 @@ const dashboardHTML = `<!doctype html>
         const data = await res.json();
         currentDomain = data.domain;
         domainText.textContent = data.domain;
-        document.getElementById('stageText').textContent = data.note || 'Domain saved.';
+        document.getElementById('stageText').textContent = data.note || '域名已保存。';
         domainEditor.hidden = true;
         editDomainBtn.hidden = false;
         refresh();
       } catch (err) {
-        document.getElementById('stageText').textContent = 'Save failed: ' + err.message;
+        document.getElementById('stageText').textContent = '保存失败：' + err.message;
       } finally {
         saveDomainBtn.classList.remove('is-busy');
-        saveDomainBtn.textContent = 'Save';
+        saveDomainBtn.textContent = '保存';
       }
     }
 
@@ -292,7 +292,7 @@ const dashboardHTML = `<!doctype html>
       if (runBtn.dataset.pending === 'true') return;
       runBtn.dataset.pending = 'true';
       runBtn.classList.add('is-busy');
-      runBtn.textContent = 'Starting';
+      runBtn.textContent = '启动中';
       try {
         await fetch('/api/run', { method: 'POST' });
       } finally {
@@ -316,30 +316,34 @@ const dashboardHTML = `<!doctype html>
       document.getElementById('target').textContent = st.target || cfg.desired_unique_ips || '-';
       document.getElementById('topSpeed').textContent = ips.length ? Number(ips[0].download_mbps).toFixed(2) + ' MB/s' : '-';
       document.getElementById('lastRun').textContent = st.last_ended ? fmt.format(new Date(st.last_ended)) : '-';
-      document.getElementById('generatedAt').textContent = st.published && st.published.generated_at ? 'Published at ' + fmt.format(new Date(st.published.generated_at)) : 'Waiting for first publish';
+      document.getElementById('generatedAt').textContent = st.published && st.published.generated_at ? '发布于 ' + fmt.format(new Date(st.published.generated_at)) : '等待首次发布';
       document.getElementById('roundNow').textContent = st.current_round ? st.current_round + ' / ' + st.rounds : '-';
       document.getElementById('selectedNow').textContent = (st.selected || 0) + ' / ' + (st.target || cfg.desired_unique_ips || '-');
       document.getElementById('candidateNow').textContent = st.candidates || 0;
-      document.getElementById('elapsedNow').textContent = st.elapsed_sec ? st.elapsed_sec + 's' : '-';
-      document.getElementById('stageText').textContent = st.stage || (st.running ? 'Testing in progress.' : 'Idle.');
+      document.getElementById('elapsedNow').textContent = st.elapsed_sec ? st.elapsed_sec + ' 秒' : '-';
+      let stageText = translateStage(st.stage || (st.running ? 'Testing in progress.' : 'Idle.'));
+      if (st.zero_speed) {
+        stageText += '；零速候选 ' + st.zero_speed + ' 个，请确认测速地址可访问';
+      }
+      document.getElementById('stageText').textContent = stageText;
 
       const dot = document.getElementById('stateDot');
       const txt = document.getElementById('stateText');
       dot.className = 'dot';
       if (st.running) {
         dot.classList.add('running');
-        txt.textContent = 'Testing';
+        txt.textContent = '正在测速';
         runBtn.classList.add('is-busy');
-        runBtn.textContent = 'Testing';
+        runBtn.textContent = '测速中';
       } else if (st.last_error) {
         dot.classList.add('error');
-        txt.textContent = 'Error';
+        txt.textContent = '异常';
         runBtn.classList.remove('is-busy');
-        runBtn.textContent = 'Run again';
+        runBtn.textContent = '重新测速';
       } else {
-        txt.textContent = ips.length ? 'Healthy' : 'No result yet';
+        txt.textContent = ips.length ? '运行正常' : '暂无结果';
         runBtn.classList.remove('is-busy');
-        runBtn.textContent = 'Run now';
+        runBtn.textContent = '立即测速';
       }
       renderTable(ips);
       renderConfig(cfg);
@@ -349,25 +353,41 @@ const dashboardHTML = `<!doctype html>
       const wrap = document.getElementById('tableWrap');
       if (!ips.length) {
         wrap.className = 'empty';
-        wrap.textContent = 'No published result yet. If it stays here after a full run, check /json for last_error and try a reachable test URL.';
+        wrap.textContent = '还没有发布结果。如果完整运行后仍无结果，请打开 /json 查看 last_error，并确认测速地址可访问。';
         return;
       }
       wrap.className = '';
-      wrap.innerHTML = '<table><thead><tr><th>#</th><th>IP</th><th>Speed</th><th>Delay</th><th>Loss</th><th>Colo</th><th>Round</th></tr></thead><tbody>' +
+      wrap.innerHTML = '<table><thead><tr><th>#</th><th>IP</th><th>速度</th><th>延迟</th><th>丢包</th><th>节点</th><th>轮次</th></tr></thead><tbody>' +
         ips.map((ip, i) => '<tr><td>' + (i + 1) + '</td><td class="ip">' + escapeHTML(ip.ip) + '</td><td class="speed">' + Number(ip.download_mbps).toFixed(2) + ' MB/s</td><td>' + Number(ip.delay_ms).toFixed(2) + ' ms</td><td>' + (Number(ip.loss_rate) * 100).toFixed(0) + '%</td><td>' + escapeHTML(ip.colo || 'N/A') + '</td><td>' + ip.round + '</td></tr>').join('') +
         '</tbody></table>';
     }
 
     function renderConfig(cfg) {
       document.getElementById('configBox').innerHTML = [
-        ['Publish mode', cfg.publish_mode],
-        ['Domain', cfg.domain],
-        ['Schedule', cfg.schedule],
-        ['Rounds', cfg.rounds_per_hour],
-        ['Download time', cfg.download_time + 's'],
-        ['Test URL', cfg.download_url],
-        ['Listen', cfg.web_listen]
+        ['发布模式', cfg.publish_mode],
+        ['域名', cfg.domain],
+        ['计划任务', cfg.schedule],
+        ['测速轮次', cfg.rounds_per_hour],
+        ['下载时长', cfg.download_time + ' 秒'],
+        ['测速地址', cfg.download_url],
+        ['监听地址', cfg.web_listen]
       ].map(([k, v]) => '<div class="row"><span>' + k + '</span><span>' + escapeHTML(String(v)) + '</span></div>').join('');
+    }
+
+    function translateStage(stage) {
+      if (!stage) return '';
+      return stage
+        .replace('Preparing', '准备测速')
+        .replace('Scanning candidate IPs', '正在扫描候选 IP')
+        .replace('Testing in progress.', '正在测速')
+        .replace('Idle.', '空闲')
+        .replace('Finished', '运行完成')
+        .replace('no publishable IPs found', '没有找到可发布的 IP')
+        .replace(/Round (\d+) produced no usable result/g, '第 $1 轮没有可用结果')
+        .replace(/Round (\d+) failed:/g, '第 $1 轮失败：')
+        .replace(/Round (\d+) was duplicated, continuing/g, '第 $1 轮结果重复，继续补测')
+        .replace(/Selected (\d+)\/(\d+) IPs/g, '已选出 $1/$2 个 IP')
+        .replace(/; (\d+) candidates had 0 MB\/s download/g, '；$1 个候选下载速度为 0');
     }
 
     function escapeHTML(v) {

@@ -128,7 +128,7 @@ func Defaults() Config {
 			MaxExtraRounds:      30,
 			IPFile:              "ip.txt",
 			Port:                443,
-			URL:                 "https://cf.xiu2.xyz/url",
+			URL:                 "https://speed.cloudflare.com/__down?bytes=50000000",
 			DelayThreads:        200,
 			PingTimes:           4,
 			DownloadTimeSeconds: 10,

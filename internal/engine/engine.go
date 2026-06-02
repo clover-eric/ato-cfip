@@ -62,7 +62,7 @@ func normalizeConfig(cfg config.TestConfig) config.TestConfig {
 		cfg.MaxDelayMS = 9999
 	}
 	if cfg.URL == "" {
-		cfg.URL = "https://cf.xiu2.xyz/url"
+		cfg.URL = "https://speed.cloudflare.com/__down?bytes=50000000"
 	}
 	return cfg
 }
@@ -329,7 +329,16 @@ func (e *Engine) downloadHandler(ctx context.Context, ip *net.IPAddr) (float64, 
 		}
 		contentRead += int64(n)
 	}
-	return avg.Value() / (timeout.Seconds() / 120), colo
+	elapsed := time.Since(timeStart).Seconds()
+	if elapsed <= 0 {
+		return 0, colo
+	}
+	speed := avg.Value() / (timeout.Seconds() / 120)
+	fallback := float64(contentRead) / elapsed
+	if speed <= 0 || fallback > speed*2 {
+		speed = fallback
+	}
+	return speed, colo
 }
 
 func getDialContext(ip *net.IPAddr, port int) func(ctx context.Context, network, address string) (net.Conn, error) {

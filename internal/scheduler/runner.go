@@ -37,6 +37,7 @@ type RunStatus struct {
 	Candidates   int                `json:"candidates"`
 	Stage        string             `json:"stage"`
 	ElapsedSec   int64              `json:"elapsed_sec"`
+	ZeroSpeed    int                `json:"zero_speed"`
 }
 
 func NewRunner(cfg config.Config, st *store.Store, pub publisher.Publisher) *Runner {
@@ -87,6 +88,10 @@ func (r *Runner) RunOnce(ctx context.Context) error {
 			r.setProgress(round, len(selected), len(all), fmt.Sprintf("Round %d produced no usable result", round))
 			continue
 		}
+		zeroSpeed := countZeroSpeed(results)
+		if zeroSpeed > 0 {
+			r.addZeroSpeed(zeroSpeed)
+		}
 		all = append(all, results...)
 		winner := firstNewWinner(results, selected)
 		if winner == nil {
@@ -95,7 +100,11 @@ func (r *Runner) RunOnce(ctx context.Context) error {
 			continue
 		}
 		selected[winner.IP] = *winner
-		r.setProgress(round, len(selected), len(all), fmt.Sprintf("Selected %d/%d IPs", len(selected), r.cfg.Test.DesiredUniqueIPs))
+		stage := fmt.Sprintf("Selected %d/%d IPs", len(selected), r.cfg.Test.DesiredUniqueIPs)
+		if zeroSpeed > 0 {
+			stage = fmt.Sprintf("%s; %d candidates had 0 MB/s download", stage, zeroSpeed)
+		}
+		r.setProgress(round, len(selected), len(all), stage)
 		log.Printf("round %d winner: %s %.2f MB/s %.2f ms", round, winner.IP, winner.DownloadMBps, winner.DelayMS)
 	}
 
@@ -185,6 +194,7 @@ func (r *Runner) setStarted(t time.Time) {
 	r.lastRun.Selected = 0
 	r.lastRun.Candidates = 0
 	r.lastRun.Stage = "Preparing"
+	r.lastRun.ZeroSpeed = 0
 }
 
 func (r *Runner) setProgress(round, selected, candidates int, stage string) {
@@ -196,11 +206,27 @@ func (r *Runner) setProgress(round, selected, candidates int, stage string) {
 	r.lastRun.Stage = stage
 }
 
+func (r *Runner) addZeroSpeed(count int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.lastRun.ZeroSpeed += count
+}
+
 func (r *Runner) setPublished(set model.PublishedSet) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.lastRun.Published = set
 	r.lastRun.Selected = len(set.IPs)
+}
+
+func countZeroSpeed(results []model.Result) int {
+	var count int
+	for _, result := range results {
+		if result.DownloadMBps <= 0 {
+			count++
+		}
+	}
+	return count
 }
 
 func (r *Runner) finishRun(err error) {
